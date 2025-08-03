@@ -9,7 +9,7 @@ A FastAPI-based web service for argument mining and analysis.
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.9 or higher (required for numpy 2.3.1 and pandas 2.3.0)
 - pip (Python package manager)
 
 ## Installation
