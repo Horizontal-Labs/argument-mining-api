@@ -485,8 +485,8 @@ MODEL_CONFIGS = {
         "params": {
          "base_model_path":"microsoft/deberta-v3-base",
             "model_paths": {
-                "type_model_path": "deberta-type-checkpoints/checkpoint-3",
-                "stance_model_path": "deberta-stance-checkpoints/checkpoint-3"
+                "type_model_path": "mrkk11/deberta-stance/deberta-type-checkpoints/checkpoint-3",
+                "stance_model_path": "mrkk11/deberta-stance/deberta-stance-checkpoints/checkpoint-3"
             }
         }
     }
