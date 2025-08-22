@@ -10,7 +10,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, Auto
 from peft import PeftModel
 import logging
 
-from app.argmining.implementations.openai_claim_premise_linker import OpenAIClaimPremiseLinker
+from .openai_claim_premise_linker import OpenAIClaimPremiseLinker
 
 from ..models.argument_units import ArgumentUnit, ClaimPremiseRelationship, LinkedArgumentUnits, LinkedArgumentUnitsWithStance, StanceRelation, UnlinkedArgumentUnits
 from ..interfaces.adu_and_stance_classifier import AduAndStanceClassifier
@@ -485,8 +485,8 @@ MODEL_CONFIGS = {
         "params": {
          "base_model_path":"microsoft/deberta-v3-base",
             "model_paths": {
-                "type_model_path": "mrkk11/deberta-stance/deberta-type-checkpoints/checkpoint-3",
-                "stance_model_path": "mrkk11/deberta-stance/deberta-stance-checkpoints/checkpoint-3"
+                "type_model_path": "mrkk11/deberta-stance",
+                "stance_model_path": "mrkk11/deberta-stance"
             }
         }
     }

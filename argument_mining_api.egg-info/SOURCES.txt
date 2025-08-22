@@ -1,0 +1,7 @@
+README.md
+setup.py
+argument_mining_api.egg-info/PKG-INFO
+argument_mining_api.egg-info/SOURCES.txt
+argument_mining_api.egg-info/dependency_links.txt
+argument_mining_api.egg-info/requires.txt
+argument_mining_api.egg-info/top_level.txt

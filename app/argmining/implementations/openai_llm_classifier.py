@@ -5,12 +5,20 @@ import re
 
 from uuid import UUID, uuid4
 
-from app.argmining.implementations.openai_claim_premise_linker import OpenAIClaimPremiseLinker
+from .openai_claim_premise_linker import OpenAIClaimPremiseLinker
 from ..interfaces.adu_and_stance_classifier import AduAndStanceClassifier
 from ..models.argument_units import ArgumentUnit, LinkedArgumentUnits, LinkedArgumentUnitsWithStance, StanceRelation, ClaimPremiseRelationship, UnlinkedArgumentUnits
 from typing import List
 from ..config import OPENAI_KEY
-from ...log import log
+# Try relative import first (for standalone), then absolute (for benchmark)
+try:
+    from ...log import log
+except ImportError:
+    # When imported from benchmark, app.log provides a Logger object
+    from app.log import log as _log
+    # Create a function wrapper to match the expected interface
+    def log():
+        return _log
 
 
 def split_into_sentences(text):
