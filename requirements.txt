@@ -30,3 +30,4 @@ certifi>=2022.0
 charset-normalizer>=3.0.0
 idna>=3.3
 protobuf>=3.20.0  # Required for DeBERTa and some other tokenizers
+hf_xet>=1.0.0  # For faster HuggingFace model downloads

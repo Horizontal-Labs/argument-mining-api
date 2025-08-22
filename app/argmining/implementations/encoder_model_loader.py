@@ -361,6 +361,53 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
         type_model_path = model_paths['type_model_path']
         stance_model_path = model_paths['stance_model_path']
         
+        # Check if paths are HuggingFace model IDs or local paths
+        if '/' in type_model_path and not type_model_path.startswith(('/', '.', 'C:', 'D:')):
+            # It's a HuggingFace model ID with subfolder
+            logger.info(f"Loading DeBERTa models from HuggingFace:")
+            logger.info(f"  Type model: {type_model_path}")
+            logger.info(f"  Stance model: {stance_model_path}")
+            
+            # For HuggingFace repos with subfolders, we need to download files from the subfolder
+            from huggingface_hub import snapshot_download
+            import tempfile
+            import os
+            
+            # Extract repo_id and subfolder
+            type_parts = type_model_path.split('/')
+            type_repo_id = '/'.join(type_parts[:2])  # e.g., "mrkk11/deberta-stance"
+            type_subfolder = '/'.join(type_parts[2:])  # e.g., "deberta-type-checkpoints"
+            
+            stance_parts = stance_model_path.split('/')
+            stance_repo_id = '/'.join(stance_parts[:2])
+            stance_subfolder = '/'.join(stance_parts[2:])
+            
+            # Download the models
+            cache_dir = os.path.join(tempfile.gettempdir(), "deberta_cache")
+            type_model_path = snapshot_download(repo_id=type_repo_id, 
+                                               allow_patterns=f"{type_subfolder}/*",
+                                               cache_dir=cache_dir)
+            type_model_path = os.path.join(type_model_path, type_subfolder)
+            
+            stance_model_path = snapshot_download(repo_id=stance_repo_id, 
+                                                 allow_patterns=f"{stance_subfolder}/*",
+                                                 cache_dir=cache_dir)
+            stance_model_path = os.path.join(stance_model_path, stance_subfolder)
+            
+        elif not type_model_path.startswith(('/', '.', 'C:', 'D:')):
+            # It's a simple HuggingFace model ID
+            logger.info(f"Loading DeBERTa models from HuggingFace:")
+            logger.info(f"  Type model: {type_model_path}")
+            logger.info(f"  Stance model: {stance_model_path}")
+        else:
+            # It's a local path
+            root = Path(__file__).parent
+            type_model_path = str(root / type_model_path)
+            stance_model_path = str(root / stance_model_path)
+            logger.info(f"Loading DeBERTa models from local paths:")
+            logger.info(f"  Type model: {type_model_path}")
+            logger.info(f"  Stance model: {stance_model_path}")
+        
         self.tokenizer = AutoTokenizer.from_pretrained(type_model_path)
         self.type_model = AutoModelForSequenceClassification.from_pretrained(type_model_path).to(self.device)
         self.stance_model = AutoModelForSequenceClassification.from_pretrained(stance_model_path).to(self.device)
@@ -483,10 +530,9 @@ MODEL_CONFIGS = {
     "deberta": {
         "loader_class": NonTrainedEncoderModelLoader,
         "params": {
-         "base_model_path":"microsoft/deberta-v3-base",
             "model_paths": {
-                "type_model_path": "mrkk11/deberta-stance",
-                "stance_model_path": "mrkk11/deberta-stance"
+                "type_model_path": "mrkk11/deberta-stance/deberta-type-checkpoints",  # Type classification model
+                "stance_model_path": "mrkk11/deberta-stance/deberta-stance-checkpoints"  # Stance classification model
             }
         }
     }
