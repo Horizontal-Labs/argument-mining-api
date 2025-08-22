@@ -1,0 +1,20 @@
+version: '3.9'
+
+services:
+  argument-mining-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: argument-mining-api
+    ports:
+      - "10234:10234"
+    environment:
+      - PORT=10234
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10234/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
