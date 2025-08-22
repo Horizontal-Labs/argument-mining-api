@@ -2,7 +2,8 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     session_id: str
-    model: str
+    adu_classifier_model: str
+    stance_classifier_model: str
     message: str
 
 class ChatError(BaseModel):  

@@ -51,23 +51,24 @@ def serialize_linked_argument_units_with_stance(obj: LinkedArgumentUnitsWithStan
         ]
     }
 
-def run_argument_mining(model_name: str, text: str):
+def run_argument_mining(adu_model_name: str, stance_model_name: str, text: str):
     try:
         log().info("====================== Step1: ADUs classification ======================")
-        model = get_adu_classifier(model_name)
+        adu_model = get_adu_classifier(adu_model_name)
         
-        unlinked_adus = model.classify_adus(text)
+        unlinked_adus = adu_model.classify_adus(text)
         
         # Link claims and premises using a separate linker
 
         linked_adus = OpenAIClaimPremiseLinker().link_claims_to_premises(unlinked_adus)
         log().debug(f"Linked ADUs are: {linked_adus}")
         log().info("====================== Step3: Classify Stances ======================")
-        # Classify stance
-        result = model.classify_stance(linked_adus, text)
+        # Classify stance using the stance model
+        stance_model = get_adu_classifier(stance_model_name)
+        result = stance_model.classify_stance(linked_adus, text)
         
         result_api = serialize_linked_argument_units_with_stance (result)
         return result_api
 
     except Exception as e:
-        raise RuntimeError(f"Pipeline failed for model '{model_name}': {str(e)}")
+        raise RuntimeError(f"Pipeline failed for ADU model '{adu_model_name}' and stance model '{stance_model_name}': {str(e)}")
