@@ -32,17 +32,25 @@ class TinyLLamaLLMClassifier (AduAndStanceClassifier):
     def __init__ (self): 
         self.base_model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
         self.adapter_path = os.path.join(os.path.dirname(__file__), "TinyLlama-1.1B-Chat-v1.0_finetuned")
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(self.base_model_id, use_auth_token=HF_TOKEN)
         
         # Load base model
+        # Use appropriate dtype based on device
+        dtype = torch.float16 if self.device == "cuda" else torch.float32
+        
         base_model = AutoModelForCausalLM.from_pretrained(
             self.base_model_id, 
             use_auth_token=HF_TOKEN,
-            torch_dtype=torch.float16,  # Use fp16 for efficiency
-            device_map="auto"
+            torch_dtype=dtype,
+            device_map=None if self.device == "cpu" else "auto"
         )
+        
+        # Move model to correct device if CPU
+        if self.device == "cpu":
+            base_model = base_model.to(self.device)
         
         # Load PEFT adapter
         try:
@@ -97,6 +105,8 @@ Answer:
         for attempt in range(1, max_retries + 1):
             try:
                 inputs = self.tokenizer(prompt, return_tensors="pt")
+                # Move inputs to the correct device
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
                 with torch.no_grad():
                     outputs = self.model.generate(
                         **inputs,
