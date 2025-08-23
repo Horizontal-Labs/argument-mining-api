@@ -29,13 +29,13 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /root/.docker/config.json:/config.json:ro
+      - /root/.docker:/config:ro
     environment:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_INCLUDE_RESTARTING=true
       - WATCHTOWER_POLL_INTERVAL=60  # Check every minute
       - WATCHTOWER_LABEL_ENABLE=true
-      - DOCKER_CONFIG=/config.json
+      - DOCKER_CONFIG=/config
     networks:
       - argmining-network
 
