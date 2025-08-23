@@ -49,12 +49,17 @@ RUN useradd -m -u 1000 appuser
 # Copy installed packages from builder to appuser's home
 COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
 
-# Copy application code
+# Copy application code with proper ownership
 COPY --chown=appuser:appuser app/ ./app/
 COPY --chown=appuser:appuser setup.py .
 
-# Install the package as appuser
+# Change ownership of the entire /app directory
+RUN chown -R appuser:appuser /app
+
+# Switch to appuser
 USER appuser
+
+# Install the package as appuser
 RUN pip install --user --no-deps -e .
 
 # Update PATH for appuser
