@@ -33,10 +33,10 @@ services:
     environment:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_INCLUDE_RESTARTING=true
-      - WATCHTOWER_POLL_INTERVAL=300  # Check every 5 minutes
+      - WATCHTOWER_POLL_INTERVAL=60  # Check every minute
       - WATCHTOWER_LABEL_ENABLE=true
       - DOCKER_CONFIG=/config.json
-    command: --interval 300 --cleanup --label-enable
+    command: --interval 60 --cleanup --label-enable
     networks:
       - argmining-network
 
