@@ -9,10 +9,12 @@ typing-extensions>=4.0.0
 # Using PyTorch CPU-only versions (500MB instead of 2GB)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.3.0+cpu
-transformers>=4.30.0
+# Latest transformers for ModernBERT support
+transformers>=4.48.0
 peft>=0.4.0
 openai>=1.0.0
 huggingface-hub>=0.15.0
+safetensors>=0.4.0
 # Removed bitsandbytes - not needed for CPU inference
 
 # Web API framework

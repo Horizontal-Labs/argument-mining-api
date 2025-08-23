@@ -77,11 +77,13 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
             base_model = AutoModelForTokenClassification.from_pretrained(
                 self.base_model_path,
                 num_labels=len(self.task_configs[task_name]["labels"]),
+                trust_remote_code=True  # Required for ModernBERT
             )
         else:
             base_model = AutoModelForSequenceClassification.from_pretrained(
                 self.base_model_path,
                 num_labels=len(self.task_configs[task_name]["labels"]),
+                trust_remote_code=True  # Required for ModernBERT
             )
 
         model = PeftModel.from_pretrained(base_model, self.adapter_paths[task_name])

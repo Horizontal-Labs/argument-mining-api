@@ -34,8 +34,14 @@ class TinyLLamaLLMClassifier (AduAndStanceClassifier):
         self.adapter_path = os.path.join(os.path.dirname(__file__), "TinyLlama-1.1B-Chat-v1.0_finetuned")
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
+        # Log token status for debugging
+        if HF_TOKEN:
+            log().info(f"HF_TOKEN is configured (length: {len(HF_TOKEN)})")
+        else:
+            log().warning("HF_TOKEN is not configured - TinyLlama may fail to load from HuggingFace")
+        
         # Load tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(self.base_model_id, use_auth_token=HF_TOKEN)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.base_model_id, token=HF_TOKEN)
         
         # Load base model
         # Use appropriate dtype based on device
@@ -43,7 +49,7 @@ class TinyLLamaLLMClassifier (AduAndStanceClassifier):
         
         base_model = AutoModelForCausalLM.from_pretrained(
             self.base_model_id, 
-            use_auth_token=HF_TOKEN,
+            token=HF_TOKEN,
             torch_dtype=dtype,
             device_map=None if self.device == "cpu" else "auto"
         )
