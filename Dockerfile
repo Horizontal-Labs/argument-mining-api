@@ -36,29 +36,26 @@ WORKDIR /app
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=10234 \
-    PATH=/root/.local/bin:$PATH
+    PORT=10234
 
 # Install only runtime dependencies (no gcc/g++)
 RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from builder
-COPY --from=builder /root/.local /root/.local
+# Create non-root user for security BEFORE copying files
+RUN useradd -m -u 1000 appuser
+
+# Copy installed packages from builder to appuser's home
+COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
 
 # Copy application code
-COPY app/ ./app/
-COPY setup.py .
+COPY --chown=appuser:appuser app/ ./app/
+COPY --chown=appuser:appuser setup.py .
 
-# Install the package
-RUN pip install --no-deps -e .
-
-# Create non-root user for security
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
-
-# Switch to non-root user
+# Install the package as appuser
 USER appuser
+RUN pip install --user --no-deps -e .
 
 # Update PATH for appuser
 ENV PATH=/home/appuser/.local/bin:$PATH
