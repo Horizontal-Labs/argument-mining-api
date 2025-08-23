@@ -1,0 +1,40 @@
+# Docker/Production Requirements - Optimized for CPU-only and smaller image size
+# This file is used for Docker builds and CI/CD pipelines
+
+# Core Python dependencies
+python-dotenv>=1.0.0
+typing-extensions>=4.0.0
+
+# Machine Learning and AI - CPU versions for smaller image
+# Using PyTorch CPU-only versions (500MB instead of 2GB)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.0+cpu
+transformers>=4.30.0
+peft>=0.4.0
+openai>=1.0.0
+huggingface-hub>=0.15.0
+# Removed bitsandbytes - not needed for CPU inference
+
+# Web API framework
+fastapi>=0.100.0
+uvicorn>=0.20.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# HTTP client libraries
+httpx>=0.24.0
+httpcore>=0.17.0
+
+# Data processing
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.9.0
+
+# Utilities
+certifi>=2022.0
+charset-normalizer>=3.0.0
+idna>=3.3
+protobuf>=3.20.0
+hf_xet>=1.0.0
+sentencepiece>=0.1.99  # Required for some tokenizers
+accelerate>=0.20.0  # For model loading optimization
