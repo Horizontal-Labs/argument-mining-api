@@ -8,7 +8,7 @@ typing-extensions>=4.0.0
 # Machine Learning and AI - CPU versions for smaller image
 # Using PyTorch CPU-only versions (500MB instead of 2GB)
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.3.0+cpu
+torch==2.5.1+cpu
 # Latest transformers for ModernBERT support (4.48+ required)
 transformers==4.48.0
 peft>=0.4.0

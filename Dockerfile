@@ -36,7 +36,9 @@ WORKDIR /app
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=10234
+    PORT=10234 \
+    TORCH_COMPILE_DISABLE=1 \
+    TOKENIZERS_PARALLELISM=false
 
 # Install only runtime dependencies (no gcc/g++)
 RUN apt-get update && apt-get install -y \
