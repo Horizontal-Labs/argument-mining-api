@@ -44,7 +44,11 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
         }
         print(f"Adapter paths: {self.adapter_paths}")
         # Initialize tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(base_model_path)
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(base_model_path, trust_remote_code=True)
+        except Exception as e:
+            logger.warning(f"Failed to load tokenizer with trust_remote_code: {e}")
+            self.tokenizer = AutoTokenizer.from_pretrained(base_model_path)
 
         # Models loaded on demand
         self.models = {}
@@ -73,18 +77,42 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
 
         logger.info(f"Loading model for task: {task_name}")
 
-        if self.task_configs[task_name]["task_type"] == "token_classification":
-            base_model = AutoModelForTokenClassification.from_pretrained(
-                self.base_model_path,
-                num_labels=len(self.task_configs[task_name]["labels"]),
-                trust_remote_code=True  # Required for ModernBERT
-            )
-        else:
-            base_model = AutoModelForSequenceClassification.from_pretrained(
-                self.base_model_path,
-                num_labels=len(self.task_configs[task_name]["labels"]),
-                trust_remote_code=True  # Required for ModernBERT
-            )
+        try:
+            if self.task_configs[task_name]["task_type"] == "token_classification":
+                base_model = AutoModelForTokenClassification.from_pretrained(
+                    self.base_model_path,
+                    num_labels=len(self.task_configs[task_name]["labels"]),
+                    trust_remote_code=True  # Required for ModernBERT
+                )
+            else:
+                base_model = AutoModelForSequenceClassification.from_pretrained(
+                    self.base_model_path,
+                    num_labels=len(self.task_configs[task_name]["labels"]),
+                    trust_remote_code=True  # Required for ModernBERT
+                )
+        except ImportError as e:
+            logger.error(f"Failed to load ModernBERT model: {e}")
+            logger.info("Attempting fallback to BERT-compatible model loading...")
+            # Fallback: Try loading without trust_remote_code first, then with generic model classes
+            try:
+                if self.task_configs[task_name]["task_type"] == "token_classification":
+                    from transformers import BertForTokenClassification
+                    base_model = BertForTokenClassification.from_pretrained(
+                        self.base_model_path,
+                        num_labels=len(self.task_configs[task_name]["labels"]),
+                        ignore_mismatched_sizes=True
+                    )
+                else:
+                    from transformers import BertForSequenceClassification
+                    base_model = BertForSequenceClassification.from_pretrained(
+                        self.base_model_path,
+                        num_labels=len(self.task_configs[task_name]["labels"]),
+                        ignore_mismatched_sizes=True
+                    )
+                logger.info("Successfully loaded model using BERT fallback")
+            except Exception as fallback_error:
+                logger.error(f"Fallback loading also failed: {fallback_error}")
+                raise e
 
         model = PeftModel.from_pretrained(base_model, self.adapter_paths[task_name])
         model = model.to(self.device)
