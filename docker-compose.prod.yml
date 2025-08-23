@@ -1,0 +1,45 @@
+version: '3.9'
+
+services:
+  argument-mining-api:
+    # Override the build section - only pull in production
+    image: ghcr.io/horizontal-labs/argument-mining-api:latest
+    container_name: argument-mining-api
+    ports:
+      - "10234:10234"
+    environment:
+      - PORT=10234
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HF_TOKEN=${HF_TOKEN}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10234/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - argmining-network
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker/config.json:/config.json:ro
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_POLL_INTERVAL=300  # Check every 5 minutes
+      - WATCHTOWER_LABEL_ENABLE=true
+      - DOCKER_CONFIG=/config.json
+    command: --interval 300 --cleanup --label-enable
+    networks:
+      - argmining-network
+
+networks:
+  argmining-network:
+    driver: bridge
