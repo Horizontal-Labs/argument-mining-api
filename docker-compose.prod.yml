@@ -36,7 +36,6 @@ services:
       - WATCHTOWER_POLL_INTERVAL=60  # Check every minute
       - WATCHTOWER_LABEL_ENABLE=true
       - DOCKER_CONFIG=/config.json
-    command: --interval 60 --cleanup --label-enable
     networks:
       - argmining-network
 
