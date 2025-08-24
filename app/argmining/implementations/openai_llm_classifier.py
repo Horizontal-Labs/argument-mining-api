@@ -25,8 +25,9 @@ def split_into_sentences(text):
     return re.split(r'(?<=[.!?])\s+', text.strip())
       
 class OpenAILLMClassifier(AduAndStanceClassifier): 
-    def __init__(self): 
+    def __init__(self, model_name: str = "gpt-4.1"): 
         self.client = openai.OpenAI(api_key=OPENAI_KEY)
+        self.model_name = model_name  # Store the specific OpenAI model to use
         self.system_prompt_adu_classification = """You are an argument-mining classifier.
 
 Task: Decide whether the TARGET sentence is a **claim** or a **premise**.
@@ -62,7 +63,9 @@ Respond only with one word: "pro" or "con".
         
         return before_context, target_sentence, after_context
         
-    def classify_sentence_with_context(self, sentences: List[str], target_index: int, model: str = "gpt-4.1") -> str:
+    def classify_sentence_with_context(self, sentences: List[str], target_index: int, model: str = None) -> str:
+        if model is None:
+            model = self.model_name  # Use instance model if not specified
         before_context, target_sentence, after_context = self.get_context_window(sentences, target_index)
         
         user_prompt = f"""Context before: "{before_context}"
@@ -100,7 +103,7 @@ What is the TARGET sentence?"""
             log().error("Failed ADU classification after retries. Returning 'unknown'.")
             return "unknown"  # Fallback if all models fail
 
-    def classify_sentence(self, sentence: str, model: str = "gpt-4.1") -> str:
+    def classify_sentence(self, sentence: str, model: str = None) -> str:
         return self.classify_sentence_with_context([sentence], 0, model)
         
     def find_context_for_units(self, text: str, claim_unit: ArgumentUnit, premise_unit: ArgumentUnit, window_size: int = 1) -> tuple[str, str]:
@@ -131,7 +134,9 @@ What is the TARGET sentence?"""
             
         return claim_context, premise_context
         
-    def classify_stance_single(self, claim_text: str, premise_text: str, model: str = "gpt-4.1", original_text: str = None) -> str:
+    def classify_stance_single(self, claim_text: str, premise_text: str, model: str = None, original_text: str = None) -> str:
+        if model is None:
+            model = self.model_name  # Use instance model if not specified
         if original_text:
             claim_unit = ArgumentUnit(uuid=uuid4(), text=claim_text, type="claim", start_pos=0, end_pos=0)
             premise_unit = ArgumentUnit(uuid=uuid4(), text=premise_text, type="premise", start_pos=0, end_pos=0)

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import chat, health
+from app.api.routes import chat, health, models
 import uvicorn
 
 def create_app() -> FastAPI:
@@ -23,6 +23,7 @@ def create_app() -> FastAPI:
     # include our routers
     app.include_router(health.router, prefix="/health", tags=["health"])
     app.include_router(chat.router, prefix="/chat", tags=["chat"])
+    app.include_router(models.router, prefix="/models", tags=["models"])
 
     return app
 

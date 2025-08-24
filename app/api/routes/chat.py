@@ -10,7 +10,7 @@ import json
 
 router = APIRouter()
 
-ALLOWED_MODELS = {"modernbert", "openai", "tinyllama", "deberta"}
+ALLOWED_MODELS = {"modernbert", "tinyllama", "deberta", "gpt-4.1", "gpt-5", "gpt-5-mini"}
 
 @router.post(
     "/send",

@@ -19,8 +19,12 @@ def get_adu_classifier(model_name: str) -> AduAndStanceClassifier:
             # Factory: Instantiate the correct class with its specific parameters
             miner: AduAndStanceClassifier = LoaderClass(**model_config["params"])
             _model_instances[model_name] = miner
+        elif model_name in ["gpt-4.1", "gpt-5", "gpt-5-mini"]:
+            # Create OpenAI classifier with specific model
+            _model_instances[model_name] = OpenAILLMClassifier(model_name=model_name)
         elif model_name == "openai":
-            _model_instances[model_name] = OpenAILLMClassifier()
+            # Legacy support for generic "openai" - defaults to gpt-4.1
+            _model_instances[model_name] = OpenAILLMClassifier(model_name="gpt-4.1")
         elif model_name == "tinyllama":
             _model_instances[model_name] = TinyLLamaLLMClassifier()
         else:
