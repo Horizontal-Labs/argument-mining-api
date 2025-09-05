@@ -8,26 +8,49 @@ AVAILABLE_MODELS = {
     "adu_classification": [
         {
             "id": "modernbert",
-            "name": "ModernBERT",
+            "name": "ModernBERT-Finetuned",
             "description": "Fast and accurate BERT-based model with PEFT adapters",
             "provider": "local"
         },
         {
             "id": "deberta",
-            "name": "DeBERTa",
+            "name": "DeBERTa-Finetuned",
             "description": "Lightweight encoder model for sentence classification",
             "provider": "local"
         },
         {
-            "id": "tinyllama",
-            "name": "TinyLlama",
-            "description": "1.1B parameter language model optimized for CPU",
-            "provider": "local"
+            "id": "tinyllama-finetuned",
+            "name": "TinyLlama-Finetuned",
+            "description": "TinyLlama chat model with PEFT adapter (finetuned)",
+            "provider": "local",
+            "supports_few_shot": True
+        },
+        {
+            "id": "tinyllama-base",
+            "name": "TinyLlama (Base)",
+            "description": "TinyLlama without PEFT adapter (base chat model)",
+            "provider": "local",
+            "supports_few_shot": True
+        },
+        {
+            "id": "llama3-3b",
+            "name": "Llama 3.2 3B Instruct (CPU unsupported – crashes)",
+            "description": "Meta Llama 3.2 3B chat-tuned model (requires GPU or large RAM; not supported on this server)",
+            "provider": "local",
+            "supports_few_shot": True,
+            "disabled": True
+        },
+        {
+            "id": "qwen2.5-1.5b",
+            "name": "Qwen 2.5 1.5B Instruct",
+            "description": "Qwen 2.5 1.5B chat-tuned model",
+            "provider": "local",
+            "supports_few_shot": True
         },
         {
             "id": "gpt-4.1",
             "name": "GPT-4.1",
-            "description": "OpenAI's GPT-4.1 model - highest accuracy",
+            "description": "OpenAI's previous flagship model",
             "provider": "openai"
         },
         {
@@ -46,26 +69,49 @@ AVAILABLE_MODELS = {
     "stance_classification": [
         {
             "id": "modernbert",
-            "name": "ModernBERT",
+            "name": "ModernBERT-Finetuned",
             "description": "Fast and accurate BERT-based model with PEFT adapters",
             "provider": "local"
         },
         {
             "id": "deberta",
-            "name": "DeBERTa",
+            "name": "DeBERTa-Finetuned",
             "description": "Lightweight encoder model for stance classification",
             "provider": "local"
         },
         {
-            "id": "tinyllama",
-            "name": "TinyLlama",
-            "description": "1.1B parameter language model optimized for CPU",
-            "provider": "local"
+            "id": "tinyllama-finetuned",
+            "name": "TinyLlama-Finetuned",
+            "description": "TinyLlama chat model with PEFT adapter (finetuned)",
+            "provider": "local",
+            "supports_few_shot": True
+        },
+        {
+            "id": "tinyllama-base",
+            "name": "TinyLlama (Base)",
+            "description": "TinyLlama without PEFT adapter (base chat model)",
+            "provider": "local",
+            "supports_few_shot": True
+        },
+        {
+            "id": "llama3-3b",
+            "name": "Llama 3.2 3B Instruct (CPU unsupported – crashes)",
+            "description": "Meta Llama 3.2 3B chat-tuned model (requires GPU or large RAM; not supported on this server)",
+            "provider": "local",
+            "supports_few_shot": True,
+            "disabled": True
+        },
+        {
+            "id": "qwen2.5-1.5b",
+            "name": "Qwen 2.5 1.5B Instruct",
+            "description": "Qwen 2.5 1.5B chat-tuned model",
+            "provider": "local",
+            "supports_few_shot": True
         },
         {
             "id": "gpt-4.1",
             "name": "GPT-4.1",
-            "description": "OpenAI's GPT-4.1 model - highest accuracy",
+            "description": "OpenAI's previous flagship model",
             "provider": "openai"
         },
         {

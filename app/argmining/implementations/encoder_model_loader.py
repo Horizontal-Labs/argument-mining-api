@@ -253,7 +253,7 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
     # --- INTERFACE METHOD IMPLEMENTATIONS ---
 
     def classify_adus(
-        self, text: str, use_sentence_fallback: bool = True
+        self, text: str, use_few_shot: bool | None = None, use_sentence_fallback: bool = True
     ) -> UnlinkedArgumentUnits:
         """
         Extracts and labels argumentative units from text.
@@ -300,6 +300,7 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
         self,
         linked_argument_units: LinkedArgumentUnits,
         originalText: str,
+        use_few_shot: bool | None = None,
     ) -> LinkedArgumentUnitsWithStance:
         """
         Classifies the stance for pre-linked claims and premises.
@@ -486,7 +487,7 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
 
     # --- INTERFACE METHOD IMPLEMENTATIONS ---
 
-    def classify_adus(self, text: str) -> UnlinkedArgumentUnits:
+    def classify_adus(self, text: str, use_few_shot: bool | None = None) -> UnlinkedArgumentUnits:
         """
         Extracts and labels argumentative units from text by treating each sentence as a potential ADU.
         """
@@ -510,6 +511,7 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
         self,
         linked_argument_units: LinkedArgumentUnits,
         originalText: str,
+        use_few_shot: bool | None = None,
     ) -> LinkedArgumentUnitsWithStance:
         """
         Classifies the stance for pre-linked claims and premises using the fine-tuned stance model.

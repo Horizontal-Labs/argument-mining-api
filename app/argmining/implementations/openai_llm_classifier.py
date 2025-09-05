@@ -46,6 +46,28 @@ Rules:
 
 Answer:
                         """
+        
+        # Optional few-shot examples
+        self.few_shot_adu_examples = (
+            "Examples:\n"
+            "Context before: \"Many cities invest in public transit.\"\n"
+            "TARGET sentence: \"Subsidizing buses reduces traffic congestion.\"\n"
+            "Context after: \"This policy also lowers emissions.\"\n"
+            "Answer: premise\n\n"
+            "Context before: \"A new tax was proposed last year.\"\n"
+            "TARGET sentence: \"The tax should be implemented immediately.\"\n"
+            "Context after: \"Opponents argue it harms small businesses.\"\n"
+            "Answer: claim\n"
+        )
+        self.few_shot_stance_examples = (
+            "Examples:\n"
+            "Claim with context: Banning plastic bags will protect the environment.\n"
+            "Evidence with context: Studies show a reduction in litter after bans.\n"
+            "Stance: pro\n\n"
+            "Claim with context: The new speed cameras are unnecessary.\n"
+            "Evidence with context: Data indicates accidents decreased without cameras.\n"
+            "Stance: con\n"
+        )
         self.system_prompt_stance_classification = """You are an assistant for argument mining.
 You are given a claim and evidence (premise) along with their surrounding context.
 Determine whether the evidence supports ('pro') or refutes ('con') the claim.
@@ -63,16 +85,18 @@ Respond only with one word: "pro" or "con".
         
         return before_context, target_sentence, after_context
         
-    def classify_sentence_with_context(self, sentences: List[str], target_index: int, model: str = None) -> str:
+    def classify_sentence_with_context(self, sentences: List[str], target_index: int, model: str = None, use_few_shot: bool | None = None) -> str:
         if model is None:
             model = self.model_name  # Use instance model if not specified
         before_context, target_sentence, after_context = self.get_context_window(sentences, target_index)
         
-        user_prompt = f"""Context before: "{before_context}"
+        user_prompt = (
+            (self.few_shot_adu_examples + "\n\n") if use_few_shot else ""
+        ) + f"""Context before: "{before_context}"
 TARGET sentence: "{target_sentence}"
 Context after: "{after_context}"
 
-What is the TARGET sentence?"""
+Is the TARGET sentence a claim or a premise? Respond with exactly one word: claim or premise."""
 
         try:
             response = self.client.chat.completions.create(
@@ -84,7 +108,7 @@ What is the TARGET sentence?"""
                     },
                     {"role": "user", "content": user_prompt.strip()},
                 ],
-                temperature=0.2,
+                # No temperature param (some models only allow default)
             )
             result = response.choices[0].message.content.strip().lower()  # type: ignore
             
@@ -103,8 +127,8 @@ What is the TARGET sentence?"""
             log().error("Failed ADU classification after retries. Returning 'unknown'.")
             return "unknown"  # Fallback if all models fail
 
-    def classify_sentence(self, sentence: str, model: str = None) -> str:
-        return self.classify_sentence_with_context([sentence], 0, model)
+    def classify_sentence(self, sentence: str, model: str = None, use_few_shot: bool | None = None) -> str:
+        return self.classify_sentence_with_context([sentence], 0, model, use_few_shot)
         
     def find_context_for_units(self, text: str, claim_unit: ArgumentUnit, premise_unit: ArgumentUnit, window_size: int = 1) -> tuple[str, str]:
         sentences = split_into_sentences(text)
@@ -134,7 +158,7 @@ What is the TARGET sentence?"""
             
         return claim_context, premise_context
         
-    def classify_stance_single(self, claim_text: str, premise_text: str, model: str = None, original_text: str = None) -> str:
+    def classify_stance_single(self, claim_text: str, premise_text: str, model: str = None, original_text: str = None, use_few_shot: bool | None = None) -> str:
         if model is None:
             model = self.model_name  # Use instance model if not specified
         if original_text:
@@ -158,10 +182,9 @@ Stance:"""
             response = self.client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": self.system_prompt_stance_classification.strip()},
+                    {"role": "system", "content": (self.system_prompt_stance_classification + ("\n\n" + self.few_shot_stance_examples if use_few_shot else "")).strip()},
                     {"role": "user", "content": user_prompt.strip()}
                 ],
-                temperature=0.2,
                 max_tokens=5
             )
             result = response.choices[0].message.content.strip().lower()  # type: ignore
@@ -176,7 +199,7 @@ Stance:"""
             log().warning(f"❌ Model {model} failed for stance classification: {e}")
             return "unidentified"
             
-    def classify_adus(self, text: str) -> UnlinkedArgumentUnits:
+    def classify_adus(self, text: str, use_few_shot: bool | None = None) -> UnlinkedArgumentUnits:
         sentences = split_into_sentences(text)
         log().info(f"Found {len(sentences)} sentences in the input text")
 
@@ -190,7 +213,7 @@ Stance:"""
             if not sentence.strip():
                 continue
 
-            adu_type = self.classify_sentence_with_context(sentences, i, model_to_use)
+            adu_type = self.classify_sentence_with_context(sentences, i, model_to_use, use_few_shot)
 
             start_pos = text.find(sentence, current_pos)
             end_pos = start_pos + len(sentence) if start_pos != -1 else -1
@@ -224,7 +247,7 @@ Stance:"""
 
         return UnlinkedArgumentUnits(claims=claims, premises=premises)
     
-    def classify_stance(self, linked_argument_units: LinkedArgumentUnits, originalText: str) -> LinkedArgumentUnitsWithStance:
+    def classify_stance(self, linked_argument_units: LinkedArgumentUnits, originalText: str, use_few_shot: bool | None = None) -> LinkedArgumentUnitsWithStance:
         result_linked_arguments: List[StanceRelation] = []
         model_to_use = "gpt-4.1"
 
@@ -252,7 +275,8 @@ Stance:"""
                     claim.text, 
                     premise.text, 
                     model_to_use, 
-                    original_text=originalText
+                    original_text=originalText,
+                    use_few_shot=use_few_shot
                 )
                 
                 log().debug(f"Claim: '{claim.text}' | Premise: '{premise.text}' -> Relationship: {stance_relationship}")

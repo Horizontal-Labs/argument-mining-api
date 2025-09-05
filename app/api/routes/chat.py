@@ -10,7 +10,7 @@ import json
 
 router = APIRouter()
 
-ALLOWED_MODELS = {"modernbert", "tinyllama", "deberta", "gpt-4.1", "gpt-5", "gpt-5-mini"}
+ALLOWED_MODELS = {"modernbert", "tinyllama-finetuned", "tinyllama-base", "qwen2.5-1.5b", "deberta", "gpt-4.1", "gpt-5", "gpt-5-mini"}
 
 @router.post(
     "/send",
@@ -43,9 +43,21 @@ async def send_chat(payload: ChatRequest):
     adu_model = payload.adu_classifier_model
     stance_model = payload.stance_classifier_model
     cleaned = preprocessor.clean_text(payload.message)
+    # Few-shot toggles: specific flags override global flag
+    global_fs = payload.use_few_shot
+    use_few_shot_adu = payload.use_few_shot_adu if payload.use_few_shot_adu is not None else global_fs
+    use_few_shot_stance = payload.use_few_shot_stance if payload.use_few_shot_stance is not None else global_fs
+    use_few_shot_adu = bool(use_few_shot_adu) if use_few_shot_adu is not None else False
+    use_few_shot_stance = bool(use_few_shot_stance) if use_few_shot_stance is not None else False
 
     try:
-        response = run_argument_mining(adu_model, stance_model, cleaned)
+        response = run_argument_mining(
+            adu_model,
+            stance_model,
+            cleaned,
+            use_few_shot_adu,
+            use_few_shot_stance,
+        )
         log().info(f"Model response: {response}")
     except Exception as e:
         log().error(f"Model inference failed: {e}")

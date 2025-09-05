@@ -2,6 +2,7 @@ from app.argmining.implementations.encoder_model_loader import MODEL_CONFIGS
 from app.argmining.implementations.openai_claim_premise_linker import OpenAIClaimPremiseLinker
 from app.argmining.implementations.openai_llm_classifier import OpenAILLMClassifier
 from app.argmining.implementations.tinyllama_llm_classifier import TinyLLamaLLMClassifier
+from app.argmining.implementations.hf_chat_llm_classifier import HFChatLLMClassifier
 
 from app.argmining.interfaces.adu_and_stance_classifier import AduAndStanceClassifier
 from app.argmining.models.argument_units import LinkedArgumentUnitsWithStance
@@ -25,8 +26,24 @@ def get_adu_classifier(model_name: str) -> AduAndStanceClassifier:
         elif model_name == "openai":
             # Legacy support for generic "openai" - defaults to gpt-4.1
             _model_instances[model_name] = OpenAILLMClassifier(model_name="gpt-4.1")
-        elif model_name == "tinyllama":
-            _model_instances[model_name] = TinyLLamaLLMClassifier()
+        elif model_name == "tinyllama-finetuned":
+            # Explicit: finetuned adapter enabled
+            _model_instances[model_name] = TinyLLamaLLMClassifier(use_adapter=True)
+        elif model_name == "tinyllama-base":
+            # Explicitly disable adapter (use base chat model only)
+            _model_instances[model_name] = TinyLLamaLLMClassifier(use_adapter=False)
+        elif model_name == "llama3-3b":
+            # Meta Llama 3.2 3B Instruct (chat tuned)
+            _model_instances[model_name] = HFChatLLMClassifier(
+                base_model_id="meta-llama/Llama-3.2-3B-Instruct",
+                name="Llama3.2-3B-Instruct",
+            )
+        elif model_name == "qwen2.5-1.5b":
+            # Qwen 2.5 1.5B Instruct (chat tuned)
+            _model_instances[model_name] = HFChatLLMClassifier(
+                base_model_id="Qwen/Qwen2.5-1.5B-Instruct",
+                name="Qwen2.5-1.5B-Instruct",
+            )
         else:
             raise ValueError(f"Unsupported model: {model_name}")
     return _model_instances[model_name]
@@ -55,12 +72,18 @@ def serialize_linked_argument_units_with_stance(obj: LinkedArgumentUnitsWithStan
         ]
     }
 
-def run_argument_mining(adu_model_name: str, stance_model_name: str, text: str):
+def run_argument_mining(
+    adu_model_name: str,
+    stance_model_name: str,
+    text: str,
+    use_few_shot_adu: bool | None = None,
+    use_few_shot_stance: bool | None = None,
+):
     try:
         log().info("====================== Step1: ADUs classification ======================")
         adu_model = get_adu_classifier(adu_model_name)
         
-        unlinked_adus = adu_model.classify_adus(text)
+        unlinked_adus = adu_model.classify_adus(text, use_few_shot_adu)
         
         # Link claims and premises using a separate linker
 
@@ -69,7 +92,7 @@ def run_argument_mining(adu_model_name: str, stance_model_name: str, text: str):
         log().info("====================== Step3: Classify Stances ======================")
         # Classify stance using the stance model
         stance_model = get_adu_classifier(stance_model_name)
-        result = stance_model.classify_stance(linked_adus, text)
+        result = stance_model.classify_stance(linked_adus, text, use_few_shot_stance)
         
         result_api = serialize_linked_argument_units_with_stance (result)
         return result_api

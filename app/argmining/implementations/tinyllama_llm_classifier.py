@@ -29,10 +29,16 @@ def split_into_sentences(text):
     return re.split(r'(?<=[.!?])\s+', text.strip())
 
 class TinyLLamaLLMClassifier (AduAndStanceClassifier): 
-    def __init__ (self): 
+    def __init__ (self, use_adapter: bool | None = None): 
         self.base_model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
         self.adapter_path = os.path.join(os.path.dirname(__file__), "TinyLlama-1.1B-Chat-v1.0_finetuned")
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Decide whether to load the PEFT adapter (finetuned) or use base model only
+        if use_adapter is None:
+            # Env var override: TINYLLAMA_USE_ADAPTER=true/false (default: true)
+            env_flag = os.getenv("TINYLLAMA_USE_ADAPTER", "true").strip().lower()
+            use_adapter = env_flag not in ("0", "false", "no")
+        self.use_adapter = bool(use_adapter)
         
         # Log token status for debugging
         if HF_TOKEN:
@@ -42,6 +48,8 @@ class TinyLLamaLLMClassifier (AduAndStanceClassifier):
         
         # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(self.base_model_id, token=HF_TOKEN)
+        # Detect chat template support for proper prompting with chat-tuned models
+        self._has_chat_template = hasattr(self.tokenizer, "apply_chat_template") and getattr(self.tokenizer, "chat_template", None)
         
         # Load base model
         # Use appropriate dtype based on device
@@ -51,20 +59,29 @@ class TinyLLamaLLMClassifier (AduAndStanceClassifier):
             self.base_model_id, 
             token=HF_TOKEN,
             torch_dtype=dtype,
-            device_map=None if self.device == "cpu" else "auto"
+            device_map=None if self.device == "cpu" else "auto",
+            low_cpu_mem_usage=True,
         )
         
         # Move model to correct device if CPU
         if self.device == "cpu":
             base_model = base_model.to(self.device)
+            try:
+                base_model.config.use_cache = False
+            except Exception:
+                pass
         
-        # Load PEFT adapter
-        try:
-            self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
-            log().info(f"Successfully loaded PEFT adapter from {self.adapter_path}")
-        except Exception as e:
-            log().warning(f"Failed to load PEFT adapter from {self.adapter_path}: {e}")
-            log().warning("Falling back to base model")
+        # Load PEFT adapter unless explicitly disabled
+        if self.use_adapter:
+            try:
+                self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
+                log().info(f"Successfully loaded PEFT adapter from {self.adapter_path}")
+            except Exception as e:
+                log().warning(f"Failed to load PEFT adapter from {self.adapter_path}: {e}")
+                log().warning("Falling back to base model")
+                self.model = base_model
+        else:
+            log().info("TinyLlama adapter disabled by configuration. Using base model only.")
             self.model = base_model
             
         # Use the same system prompts as OpenAI classifier for consistency
@@ -87,13 +104,48 @@ Rules:
 Answer:
                         """
         self.system_prompt_stance_classification = """You are an assistant for argument mining.
-                        You are given a claim and evidence (premise) along with their surrounding context.
-                        Determine whether the evidence supports ('pro') or refutes ('con') the claim.
-                        Use the context to better understand the relationship between claim and premise.
-                        Respond only with one word: "pro" or "con".
+You are given a claim and evidence (premise) along with their surrounding context.
+Determine whether the evidence supports ('pro') or refutes ('con') the claim.
+Use the context to better understand the relationship between claim and premise.
+Respond only with one word: "pro" or "con".
                         """
+
+        # Optional few-shot examples
+        self.few_shot_adu_examples = (
+            "Examples:\n"
+            "Context before: \"Many cities invest in public transit.\"\n"
+            "TARGET sentence: \"Subsidizing buses reduces traffic congestion.\"\n"
+            "Context after: \"This policy also lowers emissions.\"\n"
+            "Answer: premise\n\n"
+            "Context before: \"A new tax was proposed last year.\"\n"
+            "TARGET sentence: \"The tax should be implemented immediately.\"\n"
+            "Context after: \"Opponents argue it harms small businesses.\"\n"
+            "Answer: claim\n"
+        )
+        self.few_shot_stance_examples = (
+            "Examples:\n"
+            "Claim with context: Banning plastic bags will protect the environment.\n"
+            "Evidence with context: Studies show a reduction in litter after bans.\n"
+            "Stance: pro\n\n"
+            "Claim with context: The new speed cameras are unnecessary.\n"
+            "Evidence with context: Data indicates accidents decreased without cameras.\n"
+            "Stance: con\n"
+        )
+
+    def _build_prompt(self, system_prompt: str, user_prompt: str) -> str:
+        """
+        Build a model-appropriate prompt. If the tokenizer provides a chat template,
+        use it; otherwise, fall back to a simple concatenation.
+        """
+        if self._has_chat_template:
+            messages = [
+                {"role": "system", "content": system_prompt.strip()},
+                {"role": "user", "content": user_prompt.strip()},
+            ]
+            return self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        return f"{system_prompt.strip()}\n\n{user_prompt.strip()}\n\nAnswer:"
     
-    def run_prompt(self, prompt, max_new_tokens=150, max_retries=3, retry_delay=1):
+    def run_prompt(self, prompt, max_new_tokens=150, max_retries=3, retry_delay=1, allowed_responses: list[str] | None = None):
         """
         Runs the prompt on the model with a retry mechanism.
         Args:
@@ -113,16 +165,59 @@ Answer:
                 inputs = self.tokenizer(prompt, return_tensors="pt")
                 # Move inputs to the correct device
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                input_len = inputs["input_ids"].shape[1]
+
+                # Optional: constrain decoding to specific responses (e.g., ["claim", "premise"]).
+                logits_processor = None
+                prefix_allowed_tokens_fn = None
+                if allowed_responses:
+                    # Build candidate token sequences for variants with/without leading space
+                    candidates = []
+                    for r in allowed_responses:
+                        for variant in (r, " " + r):
+                            ids = self.tokenizer.encode(variant, add_special_tokens=False)
+                            if ids:
+                                candidates.append(ids)
+
+                    # Closure capturing prompt length and candidates
+                    def _prefix_allowed_tokens_fn(batch_id, input_ids_row):
+                        gen = input_ids_row[input_len:]
+                        pos = len(gen)
+                        allowed = set()
+                        for seq in candidates:
+                            if pos < len(seq) and (pos == 0 or list(gen[:pos].tolist()) == seq[:pos]):
+                                allowed.add(seq[pos])
+                        # Always allow EOS to terminate once a full candidate is generated
+                        if pos and any(len(seq) == pos and list(gen[:pos].tolist()) == seq for seq in candidates):
+                            allowed.add(self.tokenizer.eos_token_id)
+                        # Fallback: if nothing matches yet, allow starts of all candidates
+                        if not allowed and pos == 0:
+                            for seq in candidates:
+                                allowed.add(seq[0])
+                        # Final fallback to avoid dead-ends
+                        if not allowed:
+                            allowed.add(self.tokenizer.eos_token_id)
+                        return list(allowed)
+
+                    prefix_allowed_tokens_fn = _prefix_allowed_tokens_fn
+
                 with torch.no_grad():
                     outputs = self.model.generate(
                         **inputs,
                         max_new_tokens=max_new_tokens,
                         pad_token_id=self.tokenizer.eos_token_id,
-                        do_sample=True,
-                        temperature=0.3
+                        do_sample=False,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                        prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                        # Silence sampling-related warnings for deterministic decoding
+                        temperature=None,
+                        top_p=None,
+                        top_k=None,
                     )
-                result = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-                return result[len(prompt):].strip()
+                # Decode only the newly generated tokens (exclude prompt)
+                gen_tokens = outputs[0][input_len:]
+                result = self.tokenizer.decode(gen_tokens, skip_special_tokens=True)
+                return result.strip()
             except Exception as e:
                 log().warning(f"⚠️ LLM failed on attempt {attempt}/{max_retries}: {e}")
                 last_exception = e
@@ -145,29 +240,31 @@ Answer:
         
         return before_context, target_sentence, after_context
         
-    def classify_sentence_with_context(self, sentences: List[str], target_index: int) -> str:
+    def classify_sentence_with_context(self, sentences: List[str], target_index: int, use_few_shot: bool | None = None) -> str:
         """
         Executes the prompt to classify a single sentence as a 'claim' or 'premise' with context.
         Uses the same prompt structure as OpenAI classifier.
         """
         before_context, target_sentence, after_context = self.get_context_window(sentences, target_index)
         
-        user_prompt = f"""Context before: "{before_context}"    
-        TARGET sentence: "{target_sentence}"
-        Context after: "{after_context}"
+        user_prompt = (
+            (self.few_shot_adu_examples + "\n\n") if use_few_shot else ""
+        ) + f"""Context before: "{before_context}"
+TARGET sentence: "{target_sentence}"
+Context after: "{after_context}"
 
-        What is the TARGET sentence?"""
+Is the TARGET sentence a claim or a premise? Respond with exactly one word: claim or premise."""
 
-        full_prompt = f"{self.system_prompt_adu_classification.strip()}\n\n{user_prompt.strip()}\n\nAnswer:"
+        full_prompt = self._build_prompt(self.system_prompt_adu_classification, user_prompt)
 
         try:
-            response = self.run_prompt(full_prompt, max_new_tokens=10)
+            response = self.run_prompt(full_prompt, max_new_tokens=4, allowed_responses=["claim", "premise"])
             result = response.strip().lower()
 
-            if "claim" in result:
-                return "claim"
-            elif "premise" in result:
-                return "premise"
+            import re as _re
+            m = _re.search(r"\b(claim|premise)\b", result)
+            if m:
+                return m.group(1)
             else:
                 log().warning(f"⚠️ Unexpected ADU classification output: {result} - labeling as 'unknown'")
                 return "unknown"
@@ -176,11 +273,11 @@ Answer:
             log().error("Failed ADU classification. Returning 'unknown'.")
             return "unknown"  # Fallback if model fails
 
-    def classify_sentence(self, sentence: str) -> str:
+    def classify_sentence(self, sentence: str, use_few_shot: bool | None = None) -> str:
         """
         Legacy method for backward compatibility - calls contextual version with single sentence.
         """
-        return self.classify_sentence_with_context([sentence], 0)
+        return self.classify_sentence_with_context([sentence], 0, use_few_shot)
         
     def find_context_for_units(self, text: str, claim_unit: ArgumentUnit, premise_unit: ArgumentUnit, window_size: int = 1) -> tuple[str, str]:
         """
@@ -217,7 +314,7 @@ Answer:
             
         return claim_context, premise_context
         
-    def classify_stance_single(self, claim_text: str, premise_text: str, original_text: str = None) -> str:
+    def classify_stance_single(self, claim_text: str, premise_text: str, original_text: str = None, use_few_shot: bool | None = None) -> str:
         """
         Classifies the stance between a single claim and premise with optional context.
         Uses the same prompt structure as OpenAI classifier.
@@ -242,15 +339,21 @@ Evidence: {premise_text}
 Stance:"""
             
         # Combine system and user prompts for TinyLlama
-        full_prompt = f"{self.system_prompt_stance_classification.strip()}\n\n{user_prompt.strip()}\n\nAnswer:"
+        sys_prompt = self.system_prompt_stance_classification
+        if use_few_shot:
+            sys_prompt = (sys_prompt + "\n\n" + self.few_shot_stance_examples)
+        full_prompt = self._build_prompt(sys_prompt, user_prompt)
             
         try:
-            response = self.run_prompt(full_prompt, max_new_tokens=10)
+            response = self.run_prompt(full_prompt, max_new_tokens=4, allowed_responses=["pro", "con"])
             result = response.strip().lower()
             
-            if any(x in result for x in ("refute", "con")):
-                return "con"
-            elif any(x in result for x in ("support", "pro")):
+            import re as _re
+            m = _re.search(r"\b(pro|con|support|refute)\b", result)
+            if m:
+                tok = m.group(1)
+                if tok in ("con", "refute"):
+                    return "con"
                 return "pro"
             else:
                 log().warning(f"Unexpected stance output: {result} for Claim: '{claim_text}' | Premise: '{premise_text}'")
@@ -260,7 +363,7 @@ Stance:"""
             return "unidentified" # Fallback if model fails
         
     
-    def classify_adus(self, text: str) -> UnlinkedArgumentUnits:
+    def classify_adus(self, text: str, use_few_shot: bool | None = None) -> UnlinkedArgumentUnits:
         """
         Extracts and labels argumentative units from text with contextual awareness.
         """
@@ -276,7 +379,7 @@ Stance:"""
             if not sentence.strip():
                 continue
 
-            adu_type = self.classify_sentence_with_context(sentences, i)
+            adu_type = self.classify_sentence_with_context(sentences, i, use_few_shot)
 
             start_pos = text.find(sentence, current_pos)
             end_pos = start_pos + len(sentence) if start_pos != -1 else -1
@@ -305,7 +408,7 @@ Stance:"""
         return UnlinkedArgumentUnits(claims=claims, premises=premises)
 
 
-    def classify_stance(self, linked_argument_units: LinkedArgumentUnits, originalText: str) -> LinkedArgumentUnitsWithStance:
+    def classify_stance(self, linked_argument_units: LinkedArgumentUnits, originalText: str, use_few_shot: bool | None = None) -> LinkedArgumentUnitsWithStance:
         """
         Classifies the stance of argument units (ADUs) and links claims to premises with contextual awareness.
         Uses the same approach as OpenAI classifier for consistency.
@@ -341,7 +444,8 @@ Stance:"""
                 stance_relationship = self.classify_stance_single(
                     claim.text, 
                     premise.text, 
-                    original_text=originalText  # Pass original text for context
+                    original_text=originalText,  # Pass original text for context
+                    use_few_shot=use_few_shot
                 )
                 
                 log().debug(f"Claim: '{claim.text}' | Premise: '{premise.text}' -> Relationship: {stance_relationship}")

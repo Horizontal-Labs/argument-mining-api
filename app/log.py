@@ -13,5 +13,7 @@ def log() -> logging.Logger:
         log.addHandler(handler)
 
     log.setLevel(logging.DEBUG)
+    # Prevent duplicate logs via root/uvicorn handlers
+    log.propagate = False
 
     return log

@@ -7,7 +7,7 @@ class AduAndStanceClassifier(ABC):
     """Interface for ADU extraction and stance classification."""
 
     @abstractmethod
-    def classify_adus(self, text: str) -> UnlinkedArgumentUnits:
+    def classify_adus(self, text: str, use_few_shot: bool | None = None) -> UnlinkedArgumentUnits:
         """Extracts and labels argumentative units from text.
 
         Args:
@@ -19,7 +19,7 @@ class AduAndStanceClassifier(ABC):
         pass
 
     @abstractmethod
-    def classify_stance(self, linked_argument_units: LinkedArgumentUnits, originalText: str) -> LinkedArgumentUnitsWithStance:
+    def classify_stance(self, linked_argument_units: LinkedArgumentUnits, originalText: str, use_few_shot: bool | None = None) -> LinkedArgumentUnitsWithStance:
         """
         Classifies the stance of argument units (ADUs) and links claims to premises.
 
