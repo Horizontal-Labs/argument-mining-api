@@ -1,0 +1,51 @@
+version: '3.9'
+
+services:
+  argument-mining-api:
+    # Override the build section - only pull in production
+    image: ghcr.io/horizontal-labs/argument-mining-api:latest
+    container_name: argument-mining-api
+    ports:
+      - "10234:10234"
+    environment:
+      - PORT=10234
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HF_TOKEN=${HF_TOKEN}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10234/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - argmining-network
+    labels:
+      com.centurylinklabs.watchtower.enable: true
+      # ✅ Scope ties this container to its Watchtower instance
+      com.centurylinklabs.watchtower.scope: "argument-mining-backend"
+
+  watchtower-argument-mining-backend:
+    image: containrrr/watchtower:latest
+    container_name: watchtower-argument-mining-backend
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker:/config:ro
+    environment:
+      - WATCHTOWER_SCOPE=argument-mining-backend
+      - WATCHTOWER_CLEANUP=false
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_POLL_INTERVAL=60  # Check every minute
+      - WATCHTOWER_LABEL_ENABLE=true
+      - DOCKER_CONFIG=/config
+    labels:
+      # Don’t let any Watchtower (including this one) update this WT container
+      com.centurylinklabs.watchtower.enable: "false"
+      com.centurylinklabs.watchtower.scope: "argument-mining-backend"
+    networks:
+      - argmining-network
+
+networks:
+  argmining-network:
+    driver: bridge

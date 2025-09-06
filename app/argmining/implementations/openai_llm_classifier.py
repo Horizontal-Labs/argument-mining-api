@@ -5,51 +5,99 @@ import re
 
 from uuid import UUID, uuid4
 
-from app.argmining.implementations.openai_claim_premise_linker import OpenAIClaimPremiseLinker
+from .openai_claim_premise_linker import OpenAIClaimPremiseLinker
 from ..interfaces.adu_and_stance_classifier import AduAndStanceClassifier
 from ..models.argument_units import ArgumentUnit, LinkedArgumentUnits, LinkedArgumentUnitsWithStance, StanceRelation, ClaimPremiseRelationship, UnlinkedArgumentUnits
 from typing import List
 from ..config import OPENAI_KEY
-from ...log import log
-
-
-#TODO: Implement Pydantic
-#NOTE: classify_stance is not implement yet 
+# Try relative import first (for standalone), then absolute (for benchmark)
+try:
+    from ...log import log
+except ImportError:
+    # When imported from benchmark, app.log provides a Logger object
+    from app.log import log as _log
+    # Create a function wrapper to match the expected interface
+    def log():
+        return _log
 
 
 def split_into_sentences(text):
     return re.split(r'(?<=[.!?])\s+', text.strip())
       
-class OpenAILLMClassifier (AduAndStanceClassifier): 
-    def __init__ (self): 
+class OpenAILLMClassifier(AduAndStanceClassifier): 
+    def __init__(self, model_name: str = "gpt-4.1"): 
         self.client = openai.OpenAI(api_key=OPENAI_KEY)
-        self.system_prompt_adu_classification = """            You are an argument-mining classifier.
+        self.model_name = model_name  # Store the specific OpenAI model to use
+        self.system_prompt_adu_classification = """You are an argument-mining classifier.
 
-Task: Decide whether the SINGLE input sentence is a **claim** or a **premise**.
+Task: Decide whether the TARGET sentence is a **claim** or a **premise**.
 
 Definitions (use these only):
 - claim: a statement that takes a stance or asserts something to be true/false or should/shouldn't happen.
 - premise: a statement that gives evidence, reasons, data, or explanation intended to support/refute a claim.
 
 Rules:
+- You will be given a TARGET sentence and surrounding context sentences.
+- Focus on classifying the TARGET sentence, but use the context to understand its role in the argument.
+- Consider how the TARGET sentence relates to nearby sentences (does it support them, or do they support it?).
 - Output EXACTLY ONE lowercase word: "claim" or "premise".
 - If the sentence mixes both, pick the main function (assertion → claim; support/explanation → premise).
 - Do NOT add punctuation or extra text.
 
 Answer:
                         """
+        
+        # Optional few-shot examples
+        self.few_shot_adu_examples = (
+            "Examples:\n"
+            "Context before: \"Many cities invest in public transit.\"\n"
+            "TARGET sentence: \"Subsidizing buses reduces traffic congestion.\"\n"
+            "Context after: \"This policy also lowers emissions.\"\n"
+            "Answer: premise\n\n"
+            "Context before: \"A new tax was proposed last year.\"\n"
+            "TARGET sentence: \"The tax should be implemented immediately.\"\n"
+            "Context after: \"Opponents argue it harms small businesses.\"\n"
+            "Answer: claim\n"
+        )
+        self.few_shot_stance_examples = (
+            "Examples:\n"
+            "Claim with context: Banning plastic bags will protect the environment.\n"
+            "Evidence with context: Studies show a reduction in litter after bans.\n"
+            "Stance: pro\n\n"
+            "Claim with context: The new speed cameras are unnecessary.\n"
+            "Evidence with context: Data indicates accidents decreased without cameras.\n"
+            "Stance: con\n"
+        )
         self.system_prompt_stance_classification = """You are an assistant for argument mining.
-                        You are given a claim and evidence (premise).
-                        Determine whether the evidence supports ('pro') or refutes ('con') the claim.
-                        Respond only with one word: "pro" or "con".
+You are given a claim and evidence (premise) along with their surrounding context.
+Determine whether the evidence supports ('pro') or refutes ('con') the claim.
+Use the context to better understand the relationship between claim and premise.
+Respond only with one word: "pro" or "con".
                         """
         
-    def classify_sentence(self, sentence: str, model: str = "gpt-4.1") -> str:
-        """
-        Executes the prompt to classify a single sentence as a 'claim' or 'premise'.
-        Includes a retry mechanism with fallback to gpt-3.5-turbo.
-        """
-        user_prompt = f'Sentence: "{sentence}"\nWhat is it?'
+    def get_context_window(self, sentences: List[str], target_index: int, window_size: int = 2) -> tuple[str, str, str]:
+        start_idx = max(0, target_index - window_size)
+        end_idx = min(len(sentences), target_index + window_size + 1)
+        
+        before_context = " ".join(sentences[start_idx:target_index]) if target_index > 0 else ""
+        target_sentence = sentences[target_index]
+        after_context = " ".join(sentences[target_index + 1:end_idx]) if target_index < len(sentences) - 1 else ""
+        
+        return before_context, target_sentence, after_context
+        
+    def classify_sentence_with_context(self, sentences: List[str], target_index: int, model: str = None, use_few_shot: bool | None = None) -> str:
+        if model is None:
+            model = self.model_name  # Use instance model if not specified
+        before_context, target_sentence, after_context = self.get_context_window(sentences, target_index)
+        
+        user_prompt = (
+            (self.few_shot_adu_examples + "\n\n") if use_few_shot else ""
+        ) + f"""Context before: "{before_context}"
+TARGET sentence: "{target_sentence}"
+Context after: "{after_context}"
+
+Is the TARGET sentence a claim or a premise? Respond with exactly one word: claim or premise."""
+
         try:
             response = self.client.chat.completions.create(
                 model=model,
@@ -60,39 +108,86 @@ Answer:
                     },
                     {"role": "user", "content": user_prompt.strip()},
                 ],
-                temperature=0.2,
+                # No temperature param (some models only allow default)
             )
-            return response.choices[0].message.content.strip().lower() # type: ignore
+            result = response.choices[0].message.content.strip().lower()  # type: ignore
+            
+            if "claim" in result:
+                return "claim"
+            elif "premise" in result:
+                return "premise"
+            else:
+                log().warning(f"⚠️ Unexpected ADU classification output: {result} - labeling as 'unknown'")
+                return "unknown"
         except Exception as e:
             log().warning(f"❌ Model {model} failed for ADU classification: {e}")
             if model != "gpt-3.5-turbo":
-                log().info(
-                    "Attempting with gpt-3.5-turbo for ADU classification."
-                )
-                return self.classify_sentence(sentence, model="gpt-3.5-turbo")
-            log().error(
-                "Failed ADU classification after retries. Defaulting to 'premise'."
-            )
-            return "premise"  # Fallback if all models fail
+                log().info("Attempting with gpt-3.5-turbo for ADU classification.")
+                return self.classify_sentence_with_context(sentences, target_index, model="gpt-3.5-turbo")
+            log().error("Failed ADU classification after retries. Returning 'unknown'.")
+            return "unknown"  # Fallback if all models fail
+
+    def classify_sentence(self, sentence: str, model: str = None, use_few_shot: bool | None = None) -> str:
+        return self.classify_sentence_with_context([sentence], 0, model, use_few_shot)
         
-    def classify_stance_single(self, claim_text: str, premise_text: str, model: str = "gpt-4.1") -> str:
-        """
-        Classifies the stance between a single claim and premise.
-        """
-        user_prompt = f"""Claim: {claim_text}
+    def find_context_for_units(self, text: str, claim_unit: ArgumentUnit, premise_unit: ArgumentUnit, window_size: int = 1) -> tuple[str, str]:
+        sentences = split_into_sentences(text)
+        
+        claim_sentence_idx = -1
+        premise_sentence_idx = -1
+        
+        for i, sentence in enumerate(sentences):
+            if claim_unit.text.strip() in sentence:
+                claim_sentence_idx = i
+            if premise_unit.text.strip() in sentence:
+                premise_sentence_idx = i
+                
+        if claim_sentence_idx >= 0:
+            start_idx = max(0, claim_sentence_idx - window_size)
+            end_idx = min(len(sentences), claim_sentence_idx + window_size + 1)
+            claim_context = " ".join(sentences[start_idx:end_idx])
+        else:
+            claim_context = claim_unit.text
+            
+        if premise_sentence_idx >= 0:
+            start_idx = max(0, premise_sentence_idx - window_size)
+            end_idx = min(len(sentences), premise_sentence_idx + window_size + 1)
+            premise_context = " ".join(sentences[start_idx:end_idx])
+        else:
+            premise_context = premise_unit.text
+            
+        return claim_context, premise_context
+        
+    def classify_stance_single(self, claim_text: str, premise_text: str, model: str = None, original_text: str = None, use_few_shot: bool | None = None) -> str:
+        if model is None:
+            model = self.model_name  # Use instance model if not specified
+        if original_text:
+            claim_unit = ArgumentUnit(uuid=uuid4(), text=claim_text, type="claim", start_pos=0, end_pos=0)
+            premise_unit = ArgumentUnit(uuid=uuid4(), text=premise_text, type="premise", start_pos=0, end_pos=0)
+            claim_context, premise_context = self.find_context_for_units(original_text, claim_unit, premise_unit)
+            
+            user_prompt = f"""Claim with context: {claim_context}
+Evidence with context: {premise_context}
+
+Focus on this specific claim: "{claim_text}"
+Focus on this specific evidence: "{premise_text}"
+
+Stance:"""
+        else:
+            user_prompt = f"""Claim: {claim_text}
 Evidence: {premise_text}
 Stance:"""
+            
         try:
             response = self.client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": self.system_prompt_stance_classification.strip()},
+                    {"role": "system", "content": (self.system_prompt_stance_classification + ("\n\n" + self.few_shot_stance_examples if use_few_shot else "")).strip()},
                     {"role": "user", "content": user_prompt.strip()}
                 ],
-                temperature=0.2,
-                max_tokens=5 # Keep it short for 'pro' or 'con'
+                max_tokens=5
             )
-            result = response.choices[0].message.content.strip().lower() # type: ignore
+            result = response.choices[0].message.content.strip().lower()  # type: ignore
             if any(x in result for x in ("refute", "con")):
                 return "con"
             elif any(x in result for x in ("support", "pro")):
@@ -102,32 +197,23 @@ Stance:"""
                 return "unidentified"
         except Exception as e:
             log().warning(f"❌ Model {model} failed for stance classification: {e}")
-            return "unidentified" # Fallback if all models fail
-
+            return "unidentified"
             
-    def classify_adus(self, text: str) -> UnlinkedArgumentUnits:
-        """
-        Extracts and labels argumentative units from text.
-        Args:
-            text (str): The raw input document.
-        Returns:
-            UnlinkedArgumentUnits: An object containing lists of claims and premises.
-        """
-        # Step 1: Split paragraph into sentences
+    def classify_adus(self, text: str, use_few_shot: bool | None = None) -> UnlinkedArgumentUnits:
         sentences = split_into_sentences(text)
         log().info(f"Found {len(sentences)} sentences in the input text")
 
-        # Step 2: Classify each sentence as a claim or premise
         claims: List[ArgumentUnit] = []
         premises: List[ArgumentUnit] = []
 
-        model_to_use = "gpt-4.1"  # Can be configured
+        model_to_use = "gpt-4.1"
         current_pos = 0
-        for sentence in sentences:
-            if not sentence:  # Skip empty strings that might result from splitting
+        
+        for i, sentence in enumerate(sentences):
+            if not sentence.strip():
                 continue
 
-            adu_type = self.classify_sentence(sentence, model_to_use)
+            adu_type = self.classify_sentence_with_context(sentences, i, model_to_use, use_few_shot)
 
             start_pos = text.find(sentence, current_pos)
             end_pos = start_pos + len(sentence) if start_pos != -1 else -1
@@ -136,17 +222,22 @@ Stance:"""
                 f"Sentence: '{sentence}' | Predicted as: {adu_type} | Start: {start_pos} | End: {end_pos}"
             )
 
+            if adu_type not in ("claim", "premise"):
+                log().warning(f"Skipping sentence due to uncertain ADU type: '{sentence}' → {adu_type}")
+                if start_pos != -1:
+                    current_pos = end_pos
+                continue
+
             adu = ArgumentUnit(
                 uuid=uuid4(),
                 text=sentence,
                 type=adu_type,
                 start_pos=start_pos,
                 end_pos=end_pos,
-                confidence=None  # Confidence is not used in this implementation
+                confidence=None
             )
 
-            # Append the new ADU to the correct list
-            if adu.type == "claim":
+            if adu_type == "claim":
                 claims.append(adu)
             else:
                 premises.append(adu)
@@ -154,22 +245,13 @@ Stance:"""
             if start_pos != -1:
                 current_pos = end_pos
 
-        # Construct and return the UnlinkedArgumentUnits object
         return UnlinkedArgumentUnits(claims=claims, premises=premises)
     
-    def classify_stance(self, linked_argument_units: LinkedArgumentUnits, originalText: str) -> LinkedArgumentUnitsWithStance:
-        """
-        Classifies the stance of argument units (ADUs) and links claims to premises.
-
-        :param linked_argument_units: The structured links between claims and premises.
-        :param originalText: The original text from which the claims and premises were extracted (for context only).
-        :return: LinkedArgumentUnitsWithStance object representing the final stance graph.
-        """
+    def classify_stance(self, linked_argument_units: LinkedArgumentUnits, originalText: str, use_few_shot: bool | None = None) -> LinkedArgumentUnitsWithStance:
         result_linked_arguments: List[StanceRelation] = []
-        model_to_use = "gpt-4.1" # Can be configured
+        model_to_use = "gpt-4.1"
 
         for relation in linked_argument_units.claims_premises_relationships:
-            # Find the claim object
             claim = next((c for c in linked_argument_units.claims if c.uuid == relation.claim_id), None)
             if claim is None:
                 log().warning(f"No Claim found for this relationship: {relation} --> Continuing loop")
@@ -189,7 +271,13 @@ Stance:"""
 
                 log().debug(f"  → With Premise: {premise.text}")
                 
-                stance_relationship = self.classify_stance_single(claim.text, premise.text, model_to_use)
+                stance_relationship = self.classify_stance_single(
+                    claim.text, 
+                    premise.text, 
+                    model_to_use, 
+                    original_text=originalText,
+                    use_few_shot=use_few_shot
+                )
                 
                 log().debug(f"Claim: '{claim.text}' | Premise: '{premise.text}' -> Relationship: {stance_relationship}")
                 
@@ -198,7 +286,7 @@ Stance:"""
                         claim_id=claim.uuid,
                         premise_id=premise.uuid,
                         stance=stance_relationship,
-                        confidence=None # OpenAI doesn't directly provide confidence score in this API call
+                        confidence=None
                     )
                 )
 

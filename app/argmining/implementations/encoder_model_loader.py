@@ -10,7 +10,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, Auto
 from peft import PeftModel
 import logging
 
-from app.argmining.implementations.openai_claim_premise_linker import OpenAIClaimPremiseLinker
+from .openai_claim_premise_linker import OpenAIClaimPremiseLinker
 
 from ..models.argument_units import ArgumentUnit, ClaimPremiseRelationship, LinkedArgumentUnits, LinkedArgumentUnitsWithStance, StanceRelation, UnlinkedArgumentUnits
 from ..interfaces.adu_and_stance_classifier import AduAndStanceClassifier
@@ -44,7 +44,11 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
         }
         print(f"Adapter paths: {self.adapter_paths}")
         # Initialize tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(base_model_path)
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(base_model_path, trust_remote_code=True)
+        except Exception as e:
+            logger.warning(f"Failed to load tokenizer with trust_remote_code: {e}")
+            self.tokenizer = AutoTokenizer.from_pretrained(base_model_path)
 
         # Models loaded on demand
         self.models = {}
@@ -73,16 +77,42 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
 
         logger.info(f"Loading model for task: {task_name}")
 
-        if self.task_configs[task_name]["task_type"] == "token_classification":
-            base_model = AutoModelForTokenClassification.from_pretrained(
-                self.base_model_path,
-                num_labels=len(self.task_configs[task_name]["labels"]),
-            )
-        else:
-            base_model = AutoModelForSequenceClassification.from_pretrained(
-                self.base_model_path,
-                num_labels=len(self.task_configs[task_name]["labels"]),
-            )
+        try:
+            if self.task_configs[task_name]["task_type"] == "token_classification":
+                base_model = AutoModelForTokenClassification.from_pretrained(
+                    self.base_model_path,
+                    num_labels=len(self.task_configs[task_name]["labels"]),
+                    trust_remote_code=True  # Required for ModernBERT
+                )
+            else:
+                base_model = AutoModelForSequenceClassification.from_pretrained(
+                    self.base_model_path,
+                    num_labels=len(self.task_configs[task_name]["labels"]),
+                    trust_remote_code=True  # Required for ModernBERT
+                )
+        except ImportError as e:
+            logger.error(f"Failed to load ModernBERT model: {e}")
+            logger.info("Attempting fallback to BERT-compatible model loading...")
+            # Fallback: Try loading without trust_remote_code first, then with generic model classes
+            try:
+                if self.task_configs[task_name]["task_type"] == "token_classification":
+                    from transformers import BertForTokenClassification
+                    base_model = BertForTokenClassification.from_pretrained(
+                        self.base_model_path,
+                        num_labels=len(self.task_configs[task_name]["labels"]),
+                        ignore_mismatched_sizes=True
+                    )
+                else:
+                    from transformers import BertForSequenceClassification
+                    base_model = BertForSequenceClassification.from_pretrained(
+                        self.base_model_path,
+                        num_labels=len(self.task_configs[task_name]["labels"]),
+                        ignore_mismatched_sizes=True
+                    )
+                logger.info("Successfully loaded model using BERT fallback")
+            except Exception as fallback_error:
+                logger.error(f"Fallback loading also failed: {fallback_error}")
+                raise e
 
         model = PeftModel.from_pretrained(base_model, self.adapter_paths[task_name])
         model = model.to(self.device)
@@ -223,7 +253,7 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
     # --- INTERFACE METHOD IMPLEMENTATIONS ---
 
     def classify_adus(
-        self, text: str, use_sentence_fallback: bool = True
+        self, text: str, use_few_shot: bool | None = None, use_sentence_fallback: bool = True
     ) -> UnlinkedArgumentUnits:
         """
         Extracts and labels argumentative units from text.
@@ -270,6 +300,7 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
         self,
         linked_argument_units: LinkedArgumentUnits,
         originalText: str,
+        use_few_shot: bool | None = None,
     ) -> LinkedArgumentUnitsWithStance:
         """
         Classifies the stance for pre-linked claims and premises.
@@ -361,6 +392,53 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
         type_model_path = model_paths['type_model_path']
         stance_model_path = model_paths['stance_model_path']
         
+        # Check if paths are HuggingFace model IDs or local paths
+        if '/' in type_model_path and not type_model_path.startswith(('/', '.', 'C:', 'D:')):
+            # It's a HuggingFace model ID with subfolder
+            logger.info(f"Loading DeBERTa models from HuggingFace:")
+            logger.info(f"  Type model: {type_model_path}")
+            logger.info(f"  Stance model: {stance_model_path}")
+            
+            # For HuggingFace repos with subfolders, we need to download files from the subfolder
+            from huggingface_hub import snapshot_download
+            import tempfile
+            import os
+            
+            # Extract repo_id and subfolder
+            type_parts = type_model_path.split('/')
+            type_repo_id = '/'.join(type_parts[:2])  # e.g., "mrkk11/deberta-stance"
+            type_subfolder = '/'.join(type_parts[2:])  # e.g., "deberta-type-checkpoints"
+            
+            stance_parts = stance_model_path.split('/')
+            stance_repo_id = '/'.join(stance_parts[:2])
+            stance_subfolder = '/'.join(stance_parts[2:])
+            
+            # Download the models
+            cache_dir = os.path.join(tempfile.gettempdir(), "deberta_cache")
+            type_model_path = snapshot_download(repo_id=type_repo_id, 
+                                               allow_patterns=f"{type_subfolder}/*",
+                                               cache_dir=cache_dir)
+            type_model_path = os.path.join(type_model_path, type_subfolder)
+            
+            stance_model_path = snapshot_download(repo_id=stance_repo_id, 
+                                                 allow_patterns=f"{stance_subfolder}/*",
+                                                 cache_dir=cache_dir)
+            stance_model_path = os.path.join(stance_model_path, stance_subfolder)
+            
+        elif not type_model_path.startswith(('/', '.', 'C:', 'D:')):
+            # It's a simple HuggingFace model ID
+            logger.info(f"Loading DeBERTa models from HuggingFace:")
+            logger.info(f"  Type model: {type_model_path}")
+            logger.info(f"  Stance model: {stance_model_path}")
+        else:
+            # It's a local path
+            root = Path(__file__).parent
+            type_model_path = str(root / type_model_path)
+            stance_model_path = str(root / stance_model_path)
+            logger.info(f"Loading DeBERTa models from local paths:")
+            logger.info(f"  Type model: {type_model_path}")
+            logger.info(f"  Stance model: {stance_model_path}")
+        
         self.tokenizer = AutoTokenizer.from_pretrained(type_model_path)
         self.type_model = AutoModelForSequenceClassification.from_pretrained(type_model_path).to(self.device)
         self.stance_model = AutoModelForSequenceClassification.from_pretrained(stance_model_path).to(self.device)
@@ -409,7 +487,7 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
 
     # --- INTERFACE METHOD IMPLEMENTATIONS ---
 
-    def classify_adus(self, text: str) -> UnlinkedArgumentUnits:
+    def classify_adus(self, text: str, use_few_shot: bool | None = None) -> UnlinkedArgumentUnits:
         """
         Extracts and labels argumentative units from text by treating each sentence as a potential ADU.
         """
@@ -433,6 +511,7 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
         self,
         linked_argument_units: LinkedArgumentUnits,
         originalText: str,
+        use_few_shot: bool | None = None,
     ) -> LinkedArgumentUnitsWithStance:
         """
         Classifies the stance for pre-linked claims and premises using the fine-tuned stance model.
@@ -483,10 +562,9 @@ MODEL_CONFIGS = {
     "deberta": {
         "loader_class": NonTrainedEncoderModelLoader,
         "params": {
-         "base_model_path":"microsoft/deberta-v3-base",
             "model_paths": {
-                "type_model_path": "deberta-type-checkpoints/checkpoint-3",
-                "stance_model_path": "deberta-stance-checkpoints/checkpoint-3"
+                "type_model_path": "mrkk11/deberta-stance/deberta-type-checkpoints",  # Type classification model
+                "stance_model_path": "mrkk11/deberta-stance/deberta-stance-checkpoints"  # Stance classification model
             }
         }
     }

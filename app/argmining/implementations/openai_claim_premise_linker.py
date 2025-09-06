@@ -68,14 +68,13 @@ class OpenAIClaimPremiseLinker(ClaimPremiseLinker):
 
         for attempt in range(1, max_retries + 1):
             response = self.client.chat.completions.create(
-                model="gpt-4.1",
+                model="gpt-5",
                 messages=[
                     {"role": "system", "content": system_prompt.strip()},
                     {"role": "user",   "content": user_prompt},
                 ],
                 tools=[function_schema],
                 tool_choice="required",
-                temperature=0.2,
             )
 
             tool_calls = response.choices[0].message.tool_calls

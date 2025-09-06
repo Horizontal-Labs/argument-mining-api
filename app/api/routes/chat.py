@@ -10,7 +10,7 @@ import json
 
 router = APIRouter()
 
-ALLOWED_MODELS = {"modernbert", "openai", "tinyllama"}
+ALLOWED_MODELS = {"modernbert", "tinyllama-finetuned", "tinyllama-base", "qwen2.5-1.5b", "deberta", "gpt-4.1", "gpt-5", "gpt-5-mini"}
 
 @router.post(
     "/send",
@@ -21,10 +21,16 @@ ALLOWED_MODELS = {"modernbert", "openai", "tinyllama"}
     },
 )
 async def send_chat(payload: ChatRequest):
-    if payload.model not in ALLOWED_MODELS:
+    if payload.adu_classifier_model not in ALLOWED_MODELS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Model not available"
+            detail=f"ADU classifier model '{payload.adu_classifier_model}' not available"
+        )
+    
+    if payload.stance_classifier_model not in ALLOWED_MODELS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Stance classifier model '{payload.stance_classifier_model}' not available"
         )
 
     if not payload.message or not payload.message.strip():
@@ -34,11 +40,24 @@ async def send_chat(payload: ChatRequest):
         )
 
     session_id = ensure_session(payload.session_id)
-    model = payload.model
+    adu_model = payload.adu_classifier_model
+    stance_model = payload.stance_classifier_model
     cleaned = preprocessor.clean_text(payload.message)
+    # Few-shot toggles: specific flags override global flag
+    global_fs = payload.use_few_shot
+    use_few_shot_adu = payload.use_few_shot_adu if payload.use_few_shot_adu is not None else global_fs
+    use_few_shot_stance = payload.use_few_shot_stance if payload.use_few_shot_stance is not None else global_fs
+    use_few_shot_adu = bool(use_few_shot_adu) if use_few_shot_adu is not None else False
+    use_few_shot_stance = bool(use_few_shot_stance) if use_few_shot_stance is not None else False
 
     try:
-        response = run_argument_mining(model, cleaned)
+        response = run_argument_mining(
+            adu_model,
+            stance_model,
+            cleaned,
+            use_few_shot_adu,
+            use_few_shot_stance,
+        )
         log().info(f"Model response: {response}")
     except Exception as e:
         log().error(f"Model inference failed: {e}")
@@ -51,7 +70,8 @@ async def send_chat(payload: ChatRequest):
         json.dumps({
             "message": cleaned,
             "session_id": session_id,
-            "model": model,
+            "adu_classifier_model": adu_model,
+            "stance_classifier_model": stance_model,
             "output": response  # returning model output to client
         }),
         media_type="application/json"
