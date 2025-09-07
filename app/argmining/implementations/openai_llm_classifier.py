@@ -9,16 +9,43 @@ from .openai_claim_premise_linker import OpenAIClaimPremiseLinker
 from ..interfaces.adu_and_stance_classifier import AduAndStanceClassifier
 from ..models.argument_units import ArgumentUnit, LinkedArgumentUnits, LinkedArgumentUnitsWithStance, StanceRelation, ClaimPremiseRelationship, UnlinkedArgumentUnits
 from typing import List
-from ..config import OPENAI_KEY
-# Try relative import first (for standalone), then absolute (for benchmark)
+# Handle logger import with fallback to benchmark logging
 try:
     from ...log import logger
 except ImportError:
-    # When imported from benchmark, app.log provides a Logger object
-    from app.log import logger as _log
-    # Create a function wrapper to match the expected interface
-    def logger():
-        return _log
+    try:
+        from app.log import logger
+    except ImportError:
+        # Fallback to benchmark logging utilities
+        try:
+            from benchmark.utils.logging_utils import get_logger, setup_logging
+            logger = setup_logging(log_level="INFO", progress_bar_compatible=True)
+            logger.info("Using benchmark logging utilities as fallback")
+        except ImportError:
+            # Ultimate fallback - basic logging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel(logging.INFO)
+            if not logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter(
+                    "[%(asctime)s] (%(name)s) %(levelname)s :: %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S %Z",
+                )
+                handler.setFormatter(formatter)
+                logger.addHandler(handler)
+            logger.info("Using basic logging fallback")
+
+# Handle OPENAI_KEY import with fallback to environment
+try:
+    from ..config import OPENAI_KEY
+except ImportError:
+    try:
+        from argmining.config import OPENAI_KEY
+    except ImportError:
+        # Fallback to environment variables
+        logger.warning("OPENAI_KEY not found in config.py or argmining.config.py, using environment variables")   
+        OPENAI_KEY = os.getenv("OPENAI_KEY") or os.getenv("OPEN_AI_KEY")
 
 
 def split_into_sentences(text):
@@ -117,14 +144,14 @@ Is the TARGET sentence a claim or a premise? Respond with exactly one word: clai
             elif "premise" in result:
                 return "premise"
             else:
-                logger().warning(f"⚠️ Unexpected ADU classification output: {result} - labeling as 'unknown'")
+                logger.warning(f"⚠️ Unexpected ADU classification output: {result} - labeling as 'unknown'")
                 return "unknown"
         except Exception as e:
-            logger().warning(f"❌ Model {model} failed for ADU classification: {e}")
+            logger.warning(f"❌ Model {model} failed for ADU classification: {e}")
             if model != "gpt-3.5-turbo":
-                logger().info("Attempting with gpt-3.5-turbo for ADU classification.")
+                logger.info("Attempting with gpt-3.5-turbo for ADU classification.")
                 return self.classify_sentence_with_context(sentences, target_index, model="gpt-3.5-turbo")
-            logger().error("Failed ADU classification after retries. Returning 'unknown'.")
+            logger.error("Failed ADU classification after retries. Returning 'unknown'.")
             return "unknown"  # Fallback if all models fail
 
     def classify_sentence(self, sentence: str, model: str = None, use_few_shot: bool | None = None) -> str:
@@ -193,15 +220,15 @@ Stance:"""
             elif any(x in result for x in ("support", "pro")):
                 return "pro"
             else:
-                logger().warning(f"Unexpected stance output: {result} for Claim: '{claim_text}' | Premise: '{premise_text}'")
+                logger.warning(f"Unexpected stance output: {result} for Claim: '{claim_text}' | Premise: '{premise_text}'")
                 return "unidentified"
         except Exception as e:
-            logger().warning(f"❌ Model {model} failed for stance classification: {e}")
+            logger.warning(f"❌ Model {model} failed for stance classification: {e}")
             return "unidentified"
             
     def classify_adus(self, text: str, use_few_shot: bool | None = None) -> UnlinkedArgumentUnits:
         sentences = split_into_sentences(text)
-        logger().info(f"Found {len(sentences)} sentences in the input text")
+        logger.info(f"Found {len(sentences)} sentences in the input text")
 
         claims: List[ArgumentUnit] = []
         premises: List[ArgumentUnit] = []
@@ -218,12 +245,12 @@ Stance:"""
             start_pos = text.find(sentence, current_pos)
             end_pos = start_pos + len(sentence) if start_pos != -1 else -1
 
-            logger().debug(
+            logger.debug(
                 f"Sentence: '{sentence}' | Predicted as: {adu_type} | Start: {start_pos} | End: {end_pos}"
             )
 
             if adu_type not in ("claim", "premise"):
-                logger().warning(f"Skipping sentence due to uncertain ADU type: '{sentence}' → {adu_type}")
+                logger.warning(f"Skipping sentence due to uncertain ADU type: '{sentence}' → {adu_type}")
                 if start_pos != -1:
                     current_pos = end_pos
                 continue
@@ -254,22 +281,22 @@ Stance:"""
         for relation in linked_argument_units.claims_premises_relationships:
             claim = next((c for c in linked_argument_units.claims if c.uuid == relation.claim_id), None)
             if claim is None:
-                logger().warning(f"No Claim found for this relationship: {relation} --> Continuing loop")
+                logger.warning(f"No Claim found for this relationship: {relation} --> Continuing loop")
                 continue
 
-            logger().debug(f"Processing Claim: {claim.text}")
+            logger.debug(f"Processing Claim: {claim.text}")
 
             if not relation.premise_ids:
-                logger().warning(f"No premises found for claim '{claim.text}' ---> Continuing loop")
+                logger.warning(f"No premises found for claim '{claim.text}' ---> Continuing loop")
                 continue
 
             for pid in relation.premise_ids:
                 premise = next((p for p in linked_argument_units.premises if p.uuid == pid), None)
                 if not premise:
-                    logger().warning(f"No premise found for the ID {pid} ---> Continuing loop")
+                    logger.warning(f"No premise found for the ID {pid} ---> Continuing loop")
                     continue
 
-                logger().debug(f"  → With Premise: {premise.text}")
+                logger.debug(f"  → With Premise: {premise.text}")
                 
                 stance_relationship = self.classify_stance_single(
                     claim.text, 
@@ -279,7 +306,7 @@ Stance:"""
                     use_few_shot=use_few_shot
                 )
                 
-                logger().debug(f"Claim: '{claim.text}' | Premise: '{premise.text}' -> Relationship: {stance_relationship}")
+                logger.debug(f"Claim: '{claim.text}' | Premise: '{premise.text}' -> Relationship: {stance_relationship}")
                 
                 result_linked_arguments.append(
                     StanceRelation(
@@ -312,32 +339,32 @@ def test_model():
     # The rest of the pipeline is IDENTICAL for both models because they share the same interface.
     
     # --- Step 1: Classify ADUs to get unlinked claims and premises ---
-    (f"--- Running Step 1: Classify ADUs using TinyLLama ---")
+    logger.info("--- Running Step 1: Classify ADUs using OpenAI ---")
     unlinked_adus = miner.classify_adus(example_text)
-    logger().info(f"Found Claims: {len(unlinked_adus.claims)}")
-    logger().info(f"Found Premises: {len(unlinked_adus.premises)}")
-    logger().info("--------------------")
+    logger.info(f"Found Claims: {len(unlinked_adus.claims)}")
+    logger.info(f"Found Premises: {len(unlinked_adus.premises)}")
+    logger.info("--------------------")
 
     # --- Step 2: Link claims to premises using the OpenAI linker ---
-    logger().info("--- Running Step 2: Linking Claims to Premises (OpenAI) ---")
+    logger.info("--- Running Step 2: Linking Claims to Premises (OpenAI) ---")
     try:
         linked_adus = claim_linker.link_claims_to_premises(unlinked_adus)
-        logger().info(f"Successfully linked ADUs.")
-        logger().info("--------------------")
+        logger.info(f"Successfully linked ADUs.")
+        logger.info("--------------------")
     except (openai.AuthenticationError, ValueError) as e:
-        logger().error(f"ERROR: Could not run linking step. Please check your OpenAI API key. Details: {e}")
+        logger.error(f"ERROR: Could not run linking step. Please check your OpenAI API key. Details: {e}")
         return
     except Exception as e:
-        logger().error(f"An unexpected error occurred during linking: {e}")
+        logger.error(f"An unexpected error occurred during linking: {e}")
         return
 
     # --- Step 3: Classify the stance for the linked units ---
-    logger().info(f"--- Running Step 3: Classify Stance using TinyLLama ---")
+    logger.info(f"--- Running Step 3: Classify Stance using OpenAI ---")
     final_structure = miner.classify_stance(
         linked_argument_units=linked_adus, originalText=example_text
     )
-    logger().info(f"Generated {len(final_structure.stance_relations)} stance relations.")
-    logger().info("--------------------")
+    logger.info(f"Generated {len(final_structure.stance_relations)} stance relations.")
+    logger.info("--------------------")
 
     # --- Final Output ---
     def _convert_to_json(o):
@@ -349,5 +376,5 @@ def test_model():
     raw_dict = asdict(final_structure)
     final_json = json.dumps(_convert_to_json(raw_dict), indent=2)
 
-    logger().info("\n--- Final Argument Structure Output ---")
-    logger().info(final_json)
+    logger.info("\n--- Final Argument Structure Output ---")
+    logger.info(final_json)

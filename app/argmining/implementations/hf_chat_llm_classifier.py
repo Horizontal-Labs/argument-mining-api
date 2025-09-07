@@ -15,15 +15,43 @@ from ..models.argument_units import (
     UnlinkedArgumentUnits,
 )
 
-# Try relative import first (for benchmark), then app logger
+# Handle logger import with fallback to benchmark logging
 try:
     from ...log import logger
 except ImportError:
-    from app.log import logger as _log
-    def logger():
-        return _log
+    try:
+        from app.log import logger
+    except ImportError:
+        # Fallback to benchmark logging utilities
+        try:
+            from benchmark.utils.logging_utils import get_logger, setup_logging
+            logger = setup_logging(log_level="INFO", progress_bar_compatible=True)
+            logger.info("Using benchmark logging utilities as fallback")
+        except ImportError:
+            # Ultimate fallback - basic logging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel(logging.INFO)
+            if not logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter(
+                    "[%(asctime)s] (%(name)s) %(levelname)s :: %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S %Z",
+                )
+                handler.setFormatter(formatter)
+                logger.addHandler(handler)
+            logger.info("Using basic logging fallback")
 
-from ..config import HF_TOKEN
+# Handle HF_TOKEN import with fallback to environment
+try:
+    from ..config import HF_TOKEN
+except ImportError:
+    try:
+        from argmining.config import HF_TOKEN
+    except ImportError:
+        # Fallback to environment variables
+        logger.warning("HF_TOKEN not found in config.py or argmining.config.py, using environment variables")   
+        HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
 
 def split_into_sentences(text: str) -> List[str]:
@@ -42,9 +70,9 @@ class HFChatLLMClassifier(AduAndStanceClassifier):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         if HF_TOKEN:
-            logger().info(f"HF_TOKEN is configured (length: {len(HF_TOKEN)})")
+            logger.info(f"HF_TOKEN is configured (length: {len(HF_TOKEN)})")
         else:
-            logger().warning("HF_TOKEN is not configured - model download may fail if needed")
+            logger.warning("HF_TOKEN is not configured - model download may fail if needed")
 
         # Tokenizer + chat template
         self.tokenizer = AutoTokenizer.from_pretrained(self.base_model_id, token=HF_TOKEN)
@@ -191,7 +219,7 @@ class HFChatLLMClassifier(AduAndStanceClassifier):
         m = re.search(r"\b(claim|premise)\b", response.lower())
         if m:
             return m.group(1)
-        logger().warning(f"Unexpected ADU classification output: {response} - labeling as 'unknown'")
+        logger.warning(f"Unexpected ADU classification output: {response} - labeling as 'unknown'")
         return "unknown"
 
     def classify_sentence(self, sentence: str, use_few_shot: bool | None = None) -> str:
@@ -199,7 +227,7 @@ class HFChatLLMClassifier(AduAndStanceClassifier):
 
     def classify_adus(self, text: str, use_few_shot: bool | None = None) -> UnlinkedArgumentUnits:
         sentences = split_into_sentences(text)
-        logger().info(f"[{self.name}] Found {len(sentences)} sentences in the input text")
+        logger.info(f"[{self.name}] Found {len(sentences)} sentences in the input text")
         claims: List[ArgumentUnit] = []
         premises: List[ArgumentUnit] = []
         current_pos = 0
@@ -212,7 +240,7 @@ class HFChatLLMClassifier(AduAndStanceClassifier):
             if start_pos != -1:
                 current_pos = end_pos
             if adu_type not in ("claim", "premise"):
-                logger().warning(f"Skipping sentence due to uncertain ADU type: '{sentence}' → {adu_type}")
+                logger.warning(f"Skipping sentence due to uncertain ADU type: '{sentence}' → {adu_type}")
                 continue
             unit = ArgumentUnit(
                 uuid=uuid4(),
@@ -254,7 +282,7 @@ class HFChatLLMClassifier(AduAndStanceClassifier):
         if m:
             tok = m.group(1)
             return "con" if tok in ("con", "refute") else "pro"
-        logger().warning(f"Unexpected stance output: {response} for Claim: '{claim_text}' | Premise: '{premise_text}'")
+        logger.warning(f"Unexpected stance output: {response} for Claim: '{claim_text}' | Premise: '{premise_text}'")
         return "unidentified"
 
     def classify_stance(self, linked_argument_units: LinkedArgumentUnits, originalText: str, use_few_shot: bool | None = None) -> LinkedArgumentUnitsWithStance:
@@ -264,7 +292,7 @@ class HFChatLLMClassifier(AduAndStanceClassifier):
             if not claim:
                 continue
             if not rel.premise_ids:
-                logger().warning(f"No premises found for claim '{claim.text}' ---> Continuing loop")
+                logger.warning(f"No premises found for claim '{claim.text}' ---> Continuing loop")
                 continue
             for pid in rel.premise_ids:
                 premise = next((p for p in linked_argument_units.premises if p.uuid == pid), None)

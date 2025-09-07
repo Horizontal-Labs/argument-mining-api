@@ -15,9 +15,24 @@ from .openai_claim_premise_linker import OpenAIClaimPremiseLinker
 from ..models.argument_units import ArgumentUnit, ClaimPremiseRelationship, LinkedArgumentUnits, LinkedArgumentUnitsWithStance, StanceRelation, UnlinkedArgumentUnits
 from ..interfaces.adu_and_stance_classifier import AduAndStanceClassifier
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Handle logger import with fallback to benchmark logging
+try:
+    from ...log import logger
+except ImportError:
+    try:
+        from app.log import logger
+    except ImportError:
+        # Fallback to benchmark logging utilities
+        try:
+            from benchmark.utils.logging_utils import get_logger, setup_logging
+            logger = setup_logging(log_level="INFO", progress_bar_compatible=True)
+            logger.info("Using benchmark logging utilities as fallback")
+        except ImportError:
+            # Ultimate fallback - basic logging
+            import logging
+            logging.basicConfig(level=logging.INFO)
+            logger = logging.getLogger(__name__)
+            logger.info("Using basic logging fallback")
 
 
 class PeftEncoderModelLoader(AduAndStanceClassifier):
