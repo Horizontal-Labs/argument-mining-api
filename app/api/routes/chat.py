@@ -58,9 +58,9 @@ async def send_chat(payload: ChatRequest):
             use_few_shot_adu,
             use_few_shot_stance,
         )
-        logger().info(f"Model response: {response}")
+        logger.info(f"Model response: {response}")
     except Exception as e:
-        logger().error(f"Model inference failed: {e}")
+        logger.error(f"Model inference failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Model processing failed: {str(e)}"

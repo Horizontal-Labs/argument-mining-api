@@ -17,27 +17,27 @@ async def lifespan(app: FastAPI):
     oai_set = bool(os.getenv("OPEN_AI_KEY") or os.getenv("OPENAI_API_KEY") or OPENAI_KEY)
     hf_set = bool(os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN") or HF_TOKEN)
     # Nicely formatted environment diagnostics for all paths we try
-    logger().info("Config (.env) paths (checked in order):")
+    logger.info("Config (.env) paths (checked in order):")
     for p in ENV_PATHS_TRIED:
-        logger().info(f"  {p}  -->  {'✅ found' if Path(p).exists() else '❌ not found'}")
-    logger().info(f"OPENAI_KEY:\n  {'✅ set' if oai_set else '❌ not set'}")
+        logger.info(f"  {p}  -->  {'✅ found' if Path(p).exists() else '❌ not found'}")
+    logger.info(f"OPENAI_KEY:\n  {'✅ set' if oai_set else '❌ not set'}")
     in_env_file = _dotenv_contains("HF_TOKEN") or _dotenv_contains("HUGGINGFACEHUB_API_TOKEN")
-    logger().info(f"HF_TOKEN:\n  {'✅ set' if hf_set else '❌ not set'}")
+    logger.info(f"HF_TOKEN:\n  {'✅ set' if hf_set else '❌ not set'}")
     if not hf_set and in_env_file:
-        logger().warning("HF_TOKEN appears in .env but is not present in process env — check .env formatting or encoding; loading uses UTF-8 and override=True.")
+        logger.warning("HF_TOKEN appears in .env but is not present in process env — check .env formatting or encoding; loading uses UTF-8 and override=True.")
     if not hf_set:
-        logger().warning("HF_TOKEN not set — some local HF models may be unavailable or fail to download.")
+        logger.warning("HF_TOKEN not set — some local HF models may be unavailable or fail to download.")
     if not oai_set:
-        logger().warning("OPENAI_KEY not set — OpenAI-backed steps (e.g., linking) will fail.")
+        logger.warning("OPENAI_KEY not set — OpenAI-backed steps (e.g., linking) will fail.")
 
     # Log registered routes for debugging missing endpoints
     try:
         from fastapi.routing import APIRoute
-        logger().info("Registered routes:")
+        logger.info("Registered routes:")
         for route in app.router.routes:
             if isinstance(route, APIRoute):
                 methods = ",".join(sorted(m for m in route.methods if m))
-                logger().info(f"  {methods:>10}  {route.path}")
+                logger.info(f"  {methods:>10}  {route.path}")
     except Exception:
         pass
 
