@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from app.api.schemas.chat import ChatRequest, ChatError
 from app.api.services import preprocessor
 from app.api.utils.session import ensure_session
-from ...log import logger
+from app.log import logger
 from app.api.services.model_client import run_argument_mining
 import json
 

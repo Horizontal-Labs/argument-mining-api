@@ -17,43 +17,8 @@ from .openai_claim_premise_linker import OpenAIClaimPremiseLinker
 from ..interfaces.adu_and_stance_classifier import AduAndStanceClassifier
 from ..models.argument_units import ArgumentUnit, LinkedArgumentUnits, LinkedArgumentUnitsWithStance, StanceRelation, ClaimPremiseRelationship, UnlinkedArgumentUnits
 
-# Handle logger import with fallback to benchmark logging
-try:
-    from ...log import logger
-except ImportError:
-    try:
-        from app.log import logger
-    except ImportError:
-        # Fallback to benchmark logging utilities
-        try:
-            from benchmark.utils.logging_utils import get_logger, setup_logging
-            logger = setup_logging(log_level="INFO", progress_bar_compatible=True)
-            logger.info("Using benchmark logging utilities as fallback")
-        except ImportError:
-            # Ultimate fallback - basic logging
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.setLevel(logging.INFO)
-            if not logger.handlers:
-                handler = logging.StreamHandler()
-                formatter = logging.Formatter(
-                    "[%(asctime)s] (%(name)s) %(levelname)s :: %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S %Z",
-                )
-                handler.setFormatter(formatter)
-                logger.addHandler(handler)
-            logger.info("Using basic logging fallback")
-
-# Handle HF_TOKEN import with fallback to environment
-try:
-    from ..config import HF_TOKEN
-except ImportError:
-    try:
-        from argmining.config import HF_TOKEN
-    except ImportError:
-        # Fallback to environment variables
-        logger.warning("HF_TOKEN not found in config.py or argmining.config.py, using environment variables")   
-        HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN") 
+from app.log import logger
+from app.argmining.config import HF_TOKEN 
 
 def split_into_sentences(text):
     return re.split(r'(?<=[.!?])\s+', text.strip())

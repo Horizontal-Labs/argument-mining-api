@@ -6,7 +6,7 @@ from app.argmining.implementations.hf_chat_llm_classifier import HFChatLLMClassi
 
 from app.argmining.interfaces.adu_and_stance_classifier import AduAndStanceClassifier
 from app.argmining.models.argument_units import LinkedArgumentUnitsWithStance
-from ...log import logger 
+from app.log import logger 
 
 _model_instances: dict[str, AduAndStanceClassifier] = {}
 

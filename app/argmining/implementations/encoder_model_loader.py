@@ -14,25 +14,7 @@ from .openai_claim_premise_linker import OpenAIClaimPremiseLinker
 
 from ..models.argument_units import ArgumentUnit, ClaimPremiseRelationship, LinkedArgumentUnits, LinkedArgumentUnitsWithStance, StanceRelation, UnlinkedArgumentUnits
 from ..interfaces.adu_and_stance_classifier import AduAndStanceClassifier
-
-# Handle logger import with fallback to benchmark logging
-try:
-    from ...log import logger
-except ImportError:
-    try:
-        from app.log import logger
-    except ImportError:
-        # Fallback to benchmark logging utilities
-        try:
-            from benchmark.utils.logging_utils import get_logger, setup_logging
-            logger = setup_logging(log_level="INFO", progress_bar_compatible=True)
-            logger.info("Using benchmark logging utilities as fallback")
-        except ImportError:
-            # Ultimate fallback - basic logging
-            import logging
-            logging.basicConfig(level=logging.INFO)
-            logger = logging.getLogger(__name__)
-            logger.info("Using basic logging fallback")
+from app.log import logger
 
 
 class PeftEncoderModelLoader(AduAndStanceClassifier):
@@ -606,8 +588,8 @@ def test_model(model_name: str):
     # --- Step 1: Classify ADUs to get unlinked claims and premises ---
     logger.info(f"--- Running Step 1: Classify ADUs using {model_name} ---")
     unlinked_adus = miner.classify_adus(example_text)
-    logger.info("Found Claims:", len(unlinked_adus.claims))
-    logger.info("Found Premises:", len(unlinked_adus.premises))
+    logger.info(f"Found Claims: {len(unlinked_adus.claims)}")
+    logger.info(f"Found Premises: {len(unlinked_adus.premises)}")
     logger.info("--------------------")
 
     # --- Step 2: Link claims to premises using the OpenAI linker ---
