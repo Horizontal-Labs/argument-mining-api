@@ -10,20 +10,50 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 from uuid import UUID, uuid4
 
+from typing import List
+
+# Import core classes (these should always work)
 from .openai_claim_premise_linker import OpenAIClaimPremiseLinker
 from ..interfaces.adu_and_stance_classifier import AduAndStanceClassifier
 from ..models.argument_units import ArgumentUnit, LinkedArgumentUnits, LinkedArgumentUnitsWithStance, StanceRelation, ClaimPremiseRelationship, UnlinkedArgumentUnits
-from typing import List
-# Try relative import first (for standalone), then absolute (for benchmark)
+
+# Handle logger import with fallback to benchmark logging
 try:
-    from ...log import log
+    from ...log import logger
 except ImportError:
-    # When imported from benchmark, app.log provides a Logger object
-    from app.log import log as _log
-    # Create a function wrapper to match the expected interface
-    def log():
-        return _log
-from ..config import HF_TOKEN 
+    try:
+        from app.log import logger
+    except ImportError:
+        # Fallback to benchmark logging utilities
+        try:
+            from benchmark.utils.logging_utils import get_logger, setup_logging
+            logger = setup_logging(log_level="INFO", progress_bar_compatible=True)
+            logger.info("Using benchmark logging utilities as fallback")
+        except ImportError:
+            # Ultimate fallback - basic logging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel(logging.INFO)
+            if not logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter(
+                    "[%(asctime)s] (%(name)s) %(levelname)s :: %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S %Z",
+                )
+                handler.setFormatter(formatter)
+                logger.addHandler(handler)
+            logger.info("Using basic logging fallback")
+
+# Handle HF_TOKEN import with fallback to environment
+try:
+    from ..config import HF_TOKEN
+except ImportError:
+    try:
+        from argmining.config import HF_TOKEN
+    except ImportError:
+        # Fallback to environment variables
+        logger.warning("HF_TOKEN not found in config.py or argmining.config.py, using environment variables")   
+        HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN") 
 
 def split_into_sentences(text):
     return re.split(r'(?<=[.!?])\s+', text.strip())
@@ -42,9 +72,9 @@ class TinyLLamaLLMClassifier (AduAndStanceClassifier):
         
         # Log token status for debugging
         if HF_TOKEN:
-            log().info(f"HF_TOKEN is configured (length: {len(HF_TOKEN)})")
+            logger.info(f"HF_TOKEN is configured (length: {len(HF_TOKEN)})")
         else:
-            log().warning("HF_TOKEN is not configured - TinyLlama may fail to load from HuggingFace")
+            logger.warning("HF_TOKEN is not configured - TinyLlama may fail to load from HuggingFace")
         
         # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(self.base_model_id, token=HF_TOKEN)
@@ -75,13 +105,13 @@ class TinyLLamaLLMClassifier (AduAndStanceClassifier):
         if self.use_adapter:
             try:
                 self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
-                log().info(f"Successfully loaded PEFT adapter from {self.adapter_path}")
+                logger.info(f"Successfully loaded PEFT adapter from {self.adapter_path}")
             except Exception as e:
-                log().warning(f"Failed to load PEFT adapter from {self.adapter_path}: {e}")
-                log().warning("Falling back to base model")
+                logger.warning(f"Failed to load PEFT adapter from {self.adapter_path}: {e}")
+                logger.warning("Falling back to base model")
                 self.model = base_model
         else:
-            log().info("TinyLlama adapter disabled by configuration. Using base model only.")
+            logger.info("TinyLlama adapter disabled by configuration. Using base model only.")
             self.model = base_model
             
         # Use the same system prompts as OpenAI classifier for consistency
@@ -219,7 +249,7 @@ Respond only with one word: "pro" or "con".
                 result = self.tokenizer.decode(gen_tokens, skip_special_tokens=True)
                 return result.strip()
             except Exception as e:
-                log().warning(f"⚠️ LLM failed on attempt {attempt}/{max_retries}: {e}")
+                logger.warning(f"⚠️ LLM failed on attempt {attempt}/{max_retries}: {e}")
                 last_exception = e
                 if attempt < max_retries:
                     time.sleep(retry_delay)
@@ -266,11 +296,11 @@ Is the TARGET sentence a claim or a premise? Respond with exactly one word: clai
             if m:
                 return m.group(1)
             else:
-                log().warning(f"⚠️ Unexpected ADU classification output: {result} - labeling as 'unknown'")
+                logger.warning(f"⚠️ Unexpected ADU classification output: {result} - labeling as 'unknown'")
                 return "unknown"
         except Exception as e:
-            log().warning(f"❌ TinyLlama failed for ADU classification: {e}")
-            log().error("Failed ADU classification. Returning 'unknown'.")
+            logger.warning(f"❌ TinyLlama failed for ADU classification: {e}")
+            logger.error("Failed ADU classification. Returning 'unknown'.")
             return "unknown"  # Fallback if model fails
 
     def classify_sentence(self, sentence: str, use_few_shot: bool | None = None) -> str:
@@ -356,10 +386,10 @@ Stance:"""
                     return "con"
                 return "pro"
             else:
-                log().warning(f"Unexpected stance output: {result} for Claim: '{claim_text}' | Premise: '{premise_text}'")
+                logger.warning(f"Unexpected stance output: {result} for Claim: '{claim_text}' | Premise: '{premise_text}'")
                 return "unidentified"
         except Exception as e:
-            log().warning(f"❌ TinyLlama failed for stance classification: {e}")
+            logger.warning(f"❌ TinyLlama failed for stance classification: {e}")
             return "unidentified" # Fallback if model fails
         
     
@@ -368,7 +398,7 @@ Stance:"""
         Extracts and labels argumentative units from text with contextual awareness.
         """
         sentences = split_into_sentences(text)
-        log().info(f"Found {len(sentences)} sentences in the input text")
+        logger.info(f"Found {len(sentences)} sentences in the input text")
 
         claims: List[ArgumentUnit] = []
         premises: List[ArgumentUnit] = []
@@ -388,7 +418,7 @@ Stance:"""
                 current_pos = end_pos
 
             if adu_type not in ("claim", "premise"):
-                log().warning(f"Skipping sentence due to uncertain ADU type: '{sentence}' → {adu_type}")
+                logger.warning(f"Skipping sentence due to uncertain ADU type: '{sentence}' → {adu_type}")
                 continue
 
             adu = ArgumentUnit(
@@ -423,22 +453,22 @@ Stance:"""
             # Find the claim object
             claim = next((c for c in linked_argument_units.claims if c.uuid == relation.claim_id), None)
             if claim is None:
-                log().warning(f"No Claim found for this relationship: {relation} --> Continuing loop")
+                logger.warning(f"No Claim found for this relationship: {relation} --> Continuing loop")
                 continue
 
-            log().debug(f"Processing Claim: {claim.text}")
+            logger.debug(f"Processing Claim: {claim.text}")
 
             if not relation.premise_ids:
-                log().warning(f"No premises found for claim '{claim.text}' ---> Continuing loop")
+                logger.warning(f"No premises found for claim '{claim.text}' ---> Continuing loop")
                 continue
 
             for pid in relation.premise_ids:
                 premise = next((p for p in linked_argument_units.premises if p.uuid == pid), None)
                 if not premise:
-                    log().warning(f"No premise found for the ID {pid} ---> Continuing loop")
+                    logger.warning(f"No premise found for the ID {pid} ---> Continuing loop")
                     continue
 
-                log().debug(f"  → With Premise: {premise.text}")
+                logger.debug(f"  → With Premise: {premise.text}")
                 
                 # Use contextual stance classification - same as OpenAI version
                 stance_relationship = self.classify_stance_single(
@@ -448,7 +478,7 @@ Stance:"""
                     use_few_shot=use_few_shot
                 )
                 
-                log().debug(f"Claim: '{claim.text}' | Premise: '{premise.text}' -> Relationship: {stance_relationship}")
+                logger.debug(f"Claim: '{claim.text}' | Premise: '{premise.text}' -> Relationship: {stance_relationship}")
                 
                 result_linked_arguments.append(
                     StanceRelation(
@@ -481,32 +511,32 @@ def test_model():
     # The rest of the pipeline is IDENTICAL for both models because they share the same interface.
     
     # --- Step 1: Classify ADUs to get unlinked claims and premises ---
-    log().info(f"--- Running Step 1: Context-Aware ADU Classification using TinyLlama ---")
+    logger.info(f"--- Running Step 1: Context-Aware ADU Classification using TinyLlama ---")
     unlinked_adus = miner.classify_adus(example_text)
-    log().info(f"Found Claims: {len(unlinked_adus.claims)}")
-    log().info(f"Found Premises: {len(unlinked_adus.premises)}")
-    log().info("--------------------")
+    logger.info(f"Found Claims: {len(unlinked_adus.claims)}")
+    logger.info(f"Found Premises: {len(unlinked_adus.premises)}")
+    logger.info("--------------------")
 
     # --- Step 2: Link claims to premises using the OpenAI linker ---
-    log().info("--- Running Step 2: Linking Claims to Premises (OpenAI) ---")
+    logger.info("--- Running Step 2: Linking Claims to Premises (OpenAI) ---")
     try:
         linked_adus = claim_linker.link_claims_to_premises(unlinked_adus)
-        log().info(f"Successfully linked ADUs.")
-        log().info("--------------------")
+        logger.info(f"Successfully linked ADUs.")
+        logger.info("--------------------")
     except (openai.AuthenticationError, ValueError) as e:
-        log().error(f"ERROR: Could not run linking step. Please check your OpenAI API key. Details: {e}")
+        logger.error(f"ERROR: Could not run linking step. Please check your OpenAI API key. Details: {e}")
         return
     except Exception as e:
-        log().error(f"An unexpected error occurred during linking: {e}")
+        logger.error(f"An unexpected error occurred during linking: {e}")
         return
 
     # --- Step 3: Classify the stance for the linked units ---
-    log().info(f"--- Running Step 3: Context-Aware Stance Classification using TinyLlama ---")
+    logger.info(f"--- Running Step 3: Context-Aware Stance Classification using TinyLlama ---")
     final_structure = miner.classify_stance(
         linked_argument_units=linked_adus, originalText=example_text
     )
-    log().info(f"Generated {len(final_structure.stance_relations)} stance relations.")
-    log().info("--------------------")
+    logger.info(f"Generated {len(final_structure.stance_relations)} stance relations.")
+    logger.info("--------------------")
 
     # --- Final Output ---
     def _convert_to_json(o):
@@ -518,5 +548,5 @@ def test_model():
     raw_dict = asdict(final_structure)
     final_json = json.dumps(_convert_to_json(raw_dict), indent=2)
 
-    log().info("\n--- Final Argument Structure Output ---")
-    log().info(final_json)
+    logger.info("\n--- Final Argument Structure Output ---")
+    logger.info(final_json)

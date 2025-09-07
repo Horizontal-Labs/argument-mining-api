@@ -6,7 +6,7 @@ from app.argmining.implementations.hf_chat_llm_classifier import HFChatLLMClassi
 
 from app.argmining.interfaces.adu_and_stance_classifier import AduAndStanceClassifier
 from app.argmining.models.argument_units import LinkedArgumentUnitsWithStance
-from ...log import log 
+from ...log import logger 
 
 _model_instances: dict[str, AduAndStanceClassifier] = {}
 
@@ -80,7 +80,7 @@ def run_argument_mining(
     use_few_shot_stance: bool | None = None,
 ):
     try:
-        log().info("====================== Step1: ADUs classification ======================")
+        logger().info("====================== Step1: ADUs classification ======================")
         adu_model = get_adu_classifier(adu_model_name)
         
         unlinked_adus = adu_model.classify_adus(text, use_few_shot_adu)
@@ -88,8 +88,8 @@ def run_argument_mining(
         # Link claims and premises using a separate linker
 
         linked_adus = OpenAIClaimPremiseLinker().link_claims_to_premises(unlinked_adus)
-        log().debug(f"Linked ADUs are: {linked_adus}")
-        log().info("====================== Step3: Classify Stances ======================")
+        logger().debug(f"Linked ADUs are: {linked_adus}")
+        logger().info("====================== Step3: Classify Stances ======================")
         # Classify stance using the stance model
         stance_model = get_adu_classifier(stance_model_name)
         result = stance_model.classify_stance(linked_adus, text, use_few_shot_stance)

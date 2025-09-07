@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from app.api.schemas.chat import ChatRequest, ChatError
 from app.api.services import preprocessor
 from app.api.utils.session import ensure_session
-from ...log import log
+from ...log import logger
 from app.api.services.model_client import run_argument_mining
 import json
 
@@ -58,9 +58,9 @@ async def send_chat(payload: ChatRequest):
             use_few_shot_adu,
             use_few_shot_stance,
         )
-        log().info(f"Model response: {response}")
+        logger().info(f"Model response: {response}")
     except Exception as e:
-        log().error(f"Model inference failed: {e}")
+        logger().error(f"Model inference failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Model processing failed: {str(e)}"
