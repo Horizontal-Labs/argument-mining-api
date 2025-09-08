@@ -376,7 +376,6 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
         except Exception as e:
             logger.error(f"Error processing JSON input: {str(e)}")
             return json.dumps({"error": str(e), "status": "failed"}, indent=2)
-            
 class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
     """
     Implementation of the classifier interface for Non Tuned Encoder models.
@@ -402,25 +401,15 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
             import os
             
             # Extract repo_id and subfolder
-            type_parts = type_model_path.split('/')
-            type_repo_id = '/'.join(type_parts[:2])  # e.g., "mrkk11/deberta-stance"
-            type_subfolder = '/'.join(type_parts[2:])  # e.g., "deberta-type-checkpoints"
             
-            stance_parts = stance_model_path.split('/')
-            stance_repo_id = '/'.join(stance_parts[:2])
-            stance_subfolder = '/'.join(stance_parts[2:])
-            
+            repo_id= "microsoft/deberta-v3-base"
             # Download the models
             cache_dir = os.path.join(tempfile.gettempdir(), "deberta_cache")
-            type_model_path = snapshot_download(repo_id=type_repo_id, 
-                                               allow_patterns=f"{type_subfolder}/*",
-                                               cache_dir=cache_dir)
-            type_model_path = os.path.join(type_model_path, type_subfolder)
+            type_model_path = snapshot_download(repo_id= repo_id,cache_dir=cache_dir)
+            type_model_path = os.path.join(type_model_path)
             
-            stance_model_path = snapshot_download(repo_id=stance_repo_id, 
-                                                 allow_patterns=f"{stance_subfolder}/*",
-                                                 cache_dir=cache_dir)
-            stance_model_path = os.path.join(stance_model_path, stance_subfolder)
+            stance_model_path = snapshot_download(repo_id= repo_id, cache_dir=cache_dir)
+            stance_model_path = os.path.join(stance_model_path)
             
         elif not type_model_path.startswith(('/', '.', 'C:', 'D:')):
             # It's a simple HuggingFace model ID
@@ -436,7 +425,7 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
             logger.info(f"  Type model: {type_model_path}")
             logger.info(f"  Stance model: {stance_model_path}")
         
-        self.tokenizer = AutoTokenizer.from_pretrained(type_model_path)
+        self.tokenizer = DebertaV2Tokenizer.from_pretrained(type_model_path)
         self.type_model = AutoModelForSequenceClassification.from_pretrained(type_model_path).to(self.device)
         self.stance_model = AutoModelForSequenceClassification.from_pretrained(stance_model_path).to(self.device)
         self.type_model.config.id2label = {
