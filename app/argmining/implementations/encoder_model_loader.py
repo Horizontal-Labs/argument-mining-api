@@ -560,8 +560,8 @@ MODEL_CONFIGS = {
         "loader_class": NonTrainedEncoderModelLoader,
         "params": {
             "model_paths": {
-                "type_model_path": "mrkk11/deberta-stance/deberta-type-checkpoints",  # Type classification model
-                "stance_model_path": "mrkk11/deberta-stance/deberta-stance-checkpoints"  # Stance classification model
+                "type_model_path": "microsoft/deberta-v3-base",  # Type classification model
+                "stance_model_path": "microsoft/deberta-v3-base"  # Stance classification model
             }
         }
     }
