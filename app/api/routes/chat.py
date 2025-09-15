@@ -76,18 +76,3 @@ async def send_chat(payload: ChatRequest):
         }),
         media_type="application/json"
     )
-
-#    # (c) call external model server
-#    try:
-#        ml_response = await model_client.render_diagram({
-#            "session_id": session_id,
-#            "text": cleaned
-#        })
-#    except Exception as e:
-#        raise HTTPException(500, detail=f"Model service error: {e}")
-#
-#    # (d) stream binary image back
-#    return StreamingResponse(
-#        ml_response.aiter_bytes(),
-#        media_type="image/png"
-#    )

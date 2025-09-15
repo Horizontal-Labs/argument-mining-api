@@ -14,8 +14,8 @@ AVAILABLE_MODELS = {
         },
         {
             "id": "deberta",
-            "name": "DeBERTa-Finetuned",
-            "description": "Lightweight encoder model for sentence classification",
+            "name": "DeBERTa V3 (Base)",
+            "description": "Lightweight encoder model for sentence classification, will probably deliver bad results as it is not fine tuned.",
             "provider": "local"
         },
         {
@@ -75,7 +75,7 @@ AVAILABLE_MODELS = {
         },
         {
             "id": "deberta",
-            "name": "DeBERTa-Finetuned",
+            "name": "DeBERTa V3 (Base)",
             "description": "Lightweight encoder model for stance classification",
             "provider": "local"
         },
@@ -95,7 +95,7 @@ AVAILABLE_MODELS = {
         },
         {
             "id": "llama3-3b",
-            "name": "Llama 3.2 3B Instruct (CPU unsupported – crashes)",
+            "name": "Llama 3.2 3B Instruct (Disabled due to Hardware Constraints)",
             "description": "Meta Llama 3.2 3B chat-tuned model (requires GPU or large RAM; not supported on this server)",
             "provider": "local",
             "supports_few_shot": True,

@@ -54,7 +54,7 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
         self.task_configs = {
             "adu_identification": {
                 "labels": ["No", "Yes"],
-                "task_type": "token_classification",
+                "task_type": "sequence_classification",
             },
             "adu_classification": {
                 "labels": ["claim", "premise"],
@@ -123,75 +123,51 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
     ) -> List[ArgumentUnit]:
         model = self.load_model_for_task("adu_identification")
 
-        inputs = self.tokenizer(
-            text,
-            return_tensors="pt",
-            truncation=True,
-            padding=True,
-            max_length=512,
-            return_offsets_mapping=True,
-        ).to(self.device)
-
-        offset_mapping = inputs.pop("offset_mapping")[0]
-
-        with torch.no_grad():
-            outputs = model(**inputs)
-            logits = outputs.logits
-            probabilities = torch.softmax(logits, dim=-1)
-            predictions = torch.argmax(logits, dim=-1)
-
-        labels = self.task_configs["adu_identification"]["labels"]
-        pred_labels = [labels[p] for p in predictions[0].cpu().numpy()]
-        confidences = probabilities[0, :, 1].cpu().numpy()
-
+        # Split text into sentences for sequence classification
+        sentences = self.extract_sentences(text)
         adus = []
-        current_span = None
+        current_pos = 0
 
-        for i, (pred_label, confidence, offset) in enumerate(
-            zip(pred_labels, confidences, offset_mapping)
-        ):
+        for sentence in sentences:
+            if not sentence.strip():
+                continue
+
+            # Find the position of this sentence in the original text
+            start_pos = text.find(sentence, current_pos)
+            if start_pos == -1:
+                continue
+            end_pos = start_pos + len(sentence)
+            current_pos = end_pos
+
+            # Classify each sentence as ADU or not
+            inputs = self.tokenizer(
+                sentence,
+                return_tensors="pt",
+                truncation=True,
+                padding=True,
+                max_length=512,
+            ).to(self.device)
+
+            with torch.no_grad():
+                outputs = model(**inputs)
+                logits = outputs.logits
+                probabilities = torch.softmax(logits, dim=-1)
+                prediction = torch.argmax(logits, dim=-1)
+                confidence = probabilities[0, 1].item()  # Confidence for "Yes" class
+
+            labels = self.task_configs["adu_identification"]["labels"]
+            pred_label = labels[prediction.item()]
+
+            # If classified as an ADU with sufficient confidence
             if pred_label == "Yes" and confidence > confidence_threshold:
-                if current_span is None:
-                    current_span = {
-                        "start": offset[0].item(),
-                        "end": offset[1].item(),
-                        "confidence": confidence,
-                    }
-                else:
-                    current_span["end"] = offset[1].item()
-                    current_span["confidence"] = max(
-                        current_span["confidence"], confidence
-                    )
-            else:
-                if current_span is not None:
-                    span_text = text[
-                        current_span["start"] : current_span["end"]
-                    ].strip()
-                    if span_text:
-                        adus.append(
-                            ArgumentUnit(
-                                uuid=uuid4(),
-                                text=span_text,
-                                start_pos=current_span["start"],
-                                end_pos=current_span["end"],
-                                type="unknown",
-                                confidence=float(current_span["confidence"]),
-                            )
-                        )
-                    current_span = None
-
-        # handle final span
-        if current_span is not None:
-            span_text = text[current_span["start"] : current_span["end"]].strip()
-            if span_text:
                 adus.append(
                     ArgumentUnit(
                         uuid=uuid4(),
-                        text=span_text,
-                        start_pos=current_span["start"],
-                        end_pos=current_span["end"],
+                        text=sentence,
+                        start_pos=start_pos,
+                        end_pos=end_pos,
                         type="unknown",
-                        confidence=float(current_span["confidence"]),
+                        confidence=confidence,
                     )
                 )
 
@@ -224,9 +200,10 @@ class PeftEncoderModelLoader(AduAndStanceClassifier):
         """Helper method to classify stance for a single claim-premise pair."""
         model = self.load_model_for_task("stance_classification")
 
-        combined_text = f"[CLS] {claim_text} [SEP] {premise_text} [SEP]"
+        # Use tokenizer's built-in handling for sentence pairs
         inputs = self.tokenizer(
-            combined_text,
+            claim_text,
+            premise_text,
             return_tensors="pt",
             truncation=True,
             padding=True,
@@ -425,7 +402,8 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
             logger.info(f"  Type model: {type_model_path}")
             logger.info(f"  Stance model: {stance_model_path}")
         
-        self.tokenizer = DebertaV2Tokenizer.from_pretrained(type_model_path)
+        # Use AutoTokenizer which will automatically select the correct tokenizer for DeBERTa-v3
+        self.tokenizer = AutoTokenizer.from_pretrained(type_model_path)
         self.type_model = AutoModelForSequenceClassification.from_pretrained(type_model_path).to(self.device)
         self.stance_model = AutoModelForSequenceClassification.from_pretrained(stance_model_path).to(self.device)
         self.type_model.config.id2label = {
@@ -449,7 +427,7 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
 
     def _classify_adu_type(self, sentence: str) -> tuple[str, float]:
         """Helper method to classify a single sentence as a claim or premise."""
-        inputs = self.tokenizer(sentence, return_tensors="pt", truncation=True, padding=True).to(self.device)
+        inputs = self.tokenizer(sentence, return_tensors="pt", truncation=True, padding=True, max_length=512).to(self.device)
         with torch.no_grad():
             output = self.type_model(**inputs)
             probs = torch.softmax(output.logits, dim=-1)
@@ -460,8 +438,8 @@ class NonTrainedEncoderModelLoader(AduAndStanceClassifier):
 
     def _classify_stance_pair(self, claim_text: str, premise_text: str) -> tuple[str, float]:
         """Helper method to classify stance for a single claim-premise pair."""
-        combined = f"{claim_text} [SEP] {premise_text}"
-        inputs = self.tokenizer(combined, return_tensors="pt", truncation=True, padding=True).to(self.device)
+        # Use tokenizer's built-in handling for sentence pairs
+        inputs = self.tokenizer(claim_text, premise_text, return_tensors="pt", truncation=True, padding=True, max_length=512).to(self.device)
         with torch.no_grad():
             output = self.stance_model(**inputs)
             probs = torch.softmax(output.logits, dim=-1)
