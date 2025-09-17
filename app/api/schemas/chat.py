@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
-    session_id: str
+    session_id: str | None = None
     adu_classifier_model: str
     stance_classifier_model: str
     message: str

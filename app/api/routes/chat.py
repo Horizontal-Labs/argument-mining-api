@@ -1,16 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+
 from app.api.schemas.chat import ChatRequest, ChatError
 from app.api.services import preprocessor
-from app.api.utils.session import ensure_session
-from app.log import logger
+from app.api.utils.session import normalize_session_id
 from app.api.services.model_client import run_argument_mining
+from app.log import logger
+
 import json
 
 
 router = APIRouter()
 
 ALLOWED_MODELS = {"modernbert", "tinyllama-finetuned", "tinyllama-base", "qwen2.5-1.5b", "deberta", "gpt-4.1", "gpt-5", "gpt-5-mini"}
+
 
 @router.post(
     "/send",
@@ -26,7 +29,7 @@ async def send_chat(payload: ChatRequest):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"ADU classifier model '{payload.adu_classifier_model}' not available"
         )
-    
+
     if payload.stance_classifier_model not in ALLOWED_MODELS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -39,7 +42,7 @@ async def send_chat(payload: ChatRequest):
             detail="Message is required"
         )
 
-    session_id = ensure_session(payload.session_id)
+    session_id = normalize_session_id(payload.session_id)
     adu_model = payload.adu_classifier_model
     stance_model = payload.stance_classifier_model
     cleaned = preprocessor.clean_text(payload.message)
@@ -66,13 +69,16 @@ async def send_chat(payload: ChatRequest):
             detail=f"Model processing failed: {str(e)}"
         )
 
+    response_payload = {
+        "message": cleaned,
+        "adu_classifier_model": adu_model,
+        "stance_classifier_model": stance_model,
+        "output": response,  # returning model output to client
+    }
+    if session_id is not None:
+        response_payload["session_id"] = session_id
+
     return StreamingResponse(
-        json.dumps({
-            "message": cleaned,
-            "session_id": session_id,
-            "adu_classifier_model": adu_model,
-            "stance_classifier_model": stance_model,
-            "output": response  # returning model output to client
-        }),
+        json.dumps(response_payload),
         media_type="application/json"
     )

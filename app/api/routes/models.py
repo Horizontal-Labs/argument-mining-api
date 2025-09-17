@@ -48,15 +48,15 @@ AVAILABLE_MODELS = {
             "supports_few_shot": True
         },
         {
-            "id": "gpt-4.1",
-            "name": "GPT-4.1",
-            "description": "OpenAI's previous flagship model",
-            "provider": "openai"
-        },
-        {
             "id": "gpt-5",
             "name": "GPT-5",
             "description": "OpenAI's GPT-5 model - next generation",
+            "provider": "openai"
+        },
+        {
+            "id": "gpt-4.1",
+            "name": "GPT-4.1",
+            "description": "OpenAI's previous flagship model",
             "provider": "openai"
         },
         {
@@ -109,15 +109,15 @@ AVAILABLE_MODELS = {
             "supports_few_shot": True
         },
         {
-            "id": "gpt-4.1",
-            "name": "GPT-4.1",
-            "description": "OpenAI's previous flagship model",
-            "provider": "openai"
-        },
-        {
             "id": "gpt-5",
             "name": "GPT-5",
             "description": "OpenAI's GPT-5 model - next generation",
+            "provider": "openai"
+        },
+        {
+            "id": "gpt-4.1",
+            "name": "GPT-4.1",
+            "description": "OpenAI's previous flagship model",
             "provider": "openai"
         },
         {
